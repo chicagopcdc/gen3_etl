@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "gen3_scripts"
+name = "gen3_etl"
 version = "0.1.9"
-description = "PCDC Gen3 Scripts"
+description = "PCDC Gen3 ETL Scripts"
 authors = ["PCDC UChicago <lgraglia@uchicago.edu>"]
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/chicagopcdc/gen3_scripts"
+repository = "https://github.com/chicagopcdc/gen3_etl"
 include = [
   "NOTICE",
 ]

@@ -7,8 +7,8 @@ import requests
 from pathlib import Path
 
 
-file_path = str(Path("../../gen3_load/fake_data/quick_load").resolve()) + '/'
-# file_path = str(Path("../../gen3_load/Submission_all_20220201").resolve()) + '/'
+file_path = str(Path("../../graph/fake_data/quick_load").resolve()) + '/'
+# file_path = str(Path("../../graph/Submission_all_20220201").resolve()) + '/'
 
 
 # types = ["person", "subject", "study", "timing", "molecular_analysis", "tumor_assessment", "survival_characteristic", "staging", "histology", "secondary_malignant_neoplasm", "biopsy_surgical_procedure", "lab", "disease_characteristic", "external_reference"]

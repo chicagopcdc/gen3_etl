@@ -1,7 +1,7 @@
 # Contents Description
 
 ## Set up the environment
-1. Create a a gen3_scripts/gen3_load/.env file with the following values:
+1. Create a a gen3_etl/graph/.env file with the following values:
     - `DICTIONARY_URL` The dictionary URL
     - `PROGRAM_NAME` The name for the program
     - `PROJECT_CODE` The code for the project
@@ -33,7 +33,7 @@
 ## Operations
 1. Load data
     - `cd operations` and `python etl.py load`
-    - `bash ./guppy_setup.sh` BROKEN use `https://github.com/chicagopcdc/gen3_scripts/blob/pcdc_dev/es_etl_patch/README.md` instead
+    - `bash ./guppy_setup.sh` BROKEN use `https://github.com/chicagopcdc/gen3_etl/blob/main/elasticsearch/README.md` instead
 
 
 
