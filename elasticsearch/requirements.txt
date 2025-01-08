@@ -1,0 +1,5 @@
+elasticsearch==7.10.0
+PyGithub==1.55
+gen3==4.6.0
+requests==2.24.0
+python-dotenv==0.19.2

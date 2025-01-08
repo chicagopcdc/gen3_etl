@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "gen3_scripts"
+version = "0.1.9"
+description = "PCDC Gen3 Scripts"
+authors = ["PCDC UChicago <lgraglia@uchicago.edu>"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/chicagopcdc/gen3_scripts"
+include = [
+  "NOTICE",
+]
+
+[tool.poetry.dependencies]
+# elasticsearch = "6.3.1"
+# elasticsearch-dsl = "6.2.1"
+configuration-files = {git = "https://github.com/chicagopcdc/configuration-files.git", branch = "pcdc_dev"}
+
+
+# [tool.poetry.dev-dependencies]
+# cdisutilstest = {git = "https://github.com/uc-cdis/cdisutils-test", rev = "1.0.0"}
+
+# [tool.poetry.scripts]
+# fence-create = 'bin.fence_create:main'
+
+# [tool.poetry.plugins."peregrine.modules"]
+# "system" = "peregrine=peregrine.api:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# [build-system]
+# requires = ["poetry>=0.12"]
+# build-backend = "poetry.masonry.api"
