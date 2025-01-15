@@ -1,17 +1,17 @@
 config = {
     'biospecimen_status':
         {
-            "pointer": None,
-            "enum": [
+            'pointer': None,
+            'enum': [
                 'Absent',
                 'Present'
             ]
         
         },
-    'lkss_obfuscated': 
+    'survival_characteristics.lkss_obfuscated': 
         {
-            "pointer": None,
-            "enum": [
+            'pointer': None,
+            'enum': [
                 'Known',
                 'Unknown'
             ]
