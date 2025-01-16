@@ -15,6 +15,7 @@ credentials*.json
 
 credential_files
 env
+*env*
 environment.yml
 
 elasticsearch/credentials.json
