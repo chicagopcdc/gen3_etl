@@ -80,7 +80,7 @@ class AwsS3:
                 yield content['Key']
 
     def get_file_metadata(self, bucket_name: str, object_path: str) -> any:
-        """ Get metadata for spcified S3 object """
+        """ Get metadata for specified S3 object """
         try:
             return self._s3.head_object(Bucket=bucket_name, Key=object_path)
         except ClientError:
