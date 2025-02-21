@@ -501,7 +501,7 @@ def main():
 
     biospecimen_data: dict[str, list[dict[str, any]]] = get_biospecimen_source_data_indexed(local_data_file_path)
 
-    output_file_name: str = _CONFIG.get('OUTPUT_FILE_PATH', 'gen3_biospecimen_new.tsv')
+    output_file_name: str = _CONFIG.get('OUTPUT_FILE_NAME', 'gen3_biospecimen_new.tsv')
     gen3_subject_dir_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_PATHS', '[]'))
     gen3_subject_dir_ignore_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_IGNORE_PATHS', '[]'))
 
