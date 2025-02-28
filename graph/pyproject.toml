@@ -6,10 +6,11 @@ authors = ["paulmurdoch19 <paulmurdoch19@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">3.8,<=3.10"
 requests = "*"
 python-dotenv = "*"
 gen3 = "4.5.0"
+fastavro = "^1.8.1"
 
 [build-system]
 requires = ["poetry-core"]
