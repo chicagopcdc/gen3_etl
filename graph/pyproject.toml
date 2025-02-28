@@ -11,6 +11,7 @@ requests = "*"
 python-dotenv = "*"
 gen3 = "4.5.0"
 fastavro = "^1.8.1"
+deepdiff = "^5.5.0"
 
 [build-system]
 requires = ["poetry-core"]
