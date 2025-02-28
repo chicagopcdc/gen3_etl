@@ -7,9 +7,9 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-requests = "^2.24.0"
-python-dotenv = "^0.19.2"
-gen3 = "^4.5.0"
+requests = "*"
+python-dotenv = "*"
+gen3 = "4.5.0"
 
 [build-system]
 requires = ["poetry-core"]
