@@ -266,7 +266,7 @@ _CONFIG: dict[str, any] = {
     ),
     'RESOURCE_ID_SYSTEM_PARTICIPANTS_URL': 'https://kf-api-dataservice.kidsfirstdrc.org/participants/',
     'RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN': 'urn:kids-first:unique-string',
-    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participant/',
+    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participants/',
     'EXTERNAL_RESOURCE_NAME': 'GMKF',
     'LOCAL_FILE_PATH': _env_vals['LOCAL_FILE_PATH'],
     'OVERWRITE_EXISTING_EXTERNAL_RESOURCE_FILE': False
