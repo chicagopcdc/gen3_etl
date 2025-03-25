@@ -4,6 +4,7 @@ Retrieve external data from GMKF
 import collections
 import json
 import logging
+import io
 import os
 import sys
 import csv
@@ -125,6 +126,20 @@ def get_subject_by_subject_id(subject_id: str, base_url: str) -> dict[str, any]:
     return json.loads(response.content)
 
 
+def get_subjects_from_file(file_path: str) -> dict[str, any]:
+    """
+    get gmkf subjects from specified file
+    """
+    if not os.path.isfile(file_path):
+        raise RuntimeError(f'Unable to load subjects from path: "{file_path}"')
+    csv_fd: io.TextIOWrapper
+    csv_reader: csv.DictReader
+    with open(file_path, 'r', encoding='utf-8') as csv_fd:
+        csv_reader = csv.DictReader(csv_fd)
+        subjects: list[dict[str, any]] = list(csv_reader)
+        return {s['cog_usi']:s for s in subjects}
+
+
 def build_external_resource_file(path: str, gmkf_subjects: dict[str, any]):
     """
     Build (append if already exists) gen3_external_reference.tsv file for subjects found at specified path
@@ -166,7 +181,7 @@ def build_external_resource_file(path: str, gmkf_subjects: dict[str, any]):
                 continue
 
             gmkf_submitter_id: str = _CONFIG['GMKF_SUBMITTER_ID_PREFIX'] + tsv_subject['*honest_broker_subject_id']
-            if gmkf_submitter_id in gmkf_subjects and gmkf_subjects[gmkf_submitter_id]:
+            if gmkf_subjects.get(gmkf_submitter_id):
                 external_obj: dict[str, any] = {}
                 external_obj['type'] = 'external_reference'
                 external_obj['project_id'] = tsv_subject['project_id']
@@ -176,18 +191,24 @@ def build_external_resource_file(path: str, gmkf_subjects: dict[str, any]):
                 external_obj['external_resource_name'] = _CONFIG['EXTERNAL_RESOURCE_NAME']
                 external_obj['*submitter_id'] = external_reference_submitter_id
 
-                identifier: dict[str, any]
-                for identifier in gmkf_subjects[gmkf_submitter_id]['resource']['identifier']:
-                    if 'system' in identifier:
-                        if identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_PARTICIPANTS_URL']:
-                            external_obj['external_subject_submitter_id'] = str(identifier['value'])
-                        elif identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN']:
-                            external_obj['external_subject_id'] = str(identifier['value'])
+                # TODO: revert after regaining access to API
+                # identifier: dict[str, any]
+                # for identifier in gmkf_subjects[gmkf_submitter_id]['resource']['identifier']:
+                #     if 'system' in identifier:
+                #         if identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_PARTICIPANTS_URL']:
+                #             external_obj['external_subject_submitter_id'] = str(identifier['value'])
+                #         elif identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN']:
+                #             external_obj['external_subject_id'] = str(identifier['value'])
 
-                if external_obj['external_subject_submitter_id']:
-                    external_obj['external_subject_url'] = (
-                        _CONFIG['EXTERNAL_SUBJECT_URL_PREFIX'] + external_obj['external_subject_submitter_id']
-                    )
+                # if external_obj['external_subject_submitter_id']:
+                #     external_obj['external_subject_url'] = (
+                #         _CONFIG['EXTERNAL_SUBJECT_URL_PREFIX'] + external_obj['external_subject_submitter_id']
+                #     )
+
+                external_obj['external_subject_submitter_id'] = gmkf_subjects[gmkf_submitter_id]['kf_participant_id']
+                external_obj['external_subject_url'] = (
+                    _CONFIG['EXTERNAL_SUBJECT_URL_PREFIX'] + external_obj['external_subject_submitter_id']
+                )
                 external_obj['external_links'] = (
                     external_obj['external_resource_name'] + '|' +
                         external_obj['external_resource_icon_path'] + '|' +
@@ -234,43 +255,59 @@ def main():
     """
     Standalone entry point
     """
+    # TODO: revert after regaining access to API
     # NOTE the IDs in the FHIR server can be different.They change with different loads.
-    study_id: str = get_study_id_by_title(_CONFIG['GMKF_STUDY_TITLE_NBL'], _CONFIG['GMKF_STUDY_URL'])
-    studies: dict[str, str] = {study_id: _CONFIG['GMKF_STUDY_TITLE_NBL']}
-    subjects: dict[str, any] = {}
-    for study_id, study_title in studies.items():
-        study_subjects = get_subjects_by_study_id(study_id, _CONFIG['GMKF_SUBJECT_URL'])
-        logger.info('%s subjects found for study %s (\'%s\')', len(study_subjects), study_id, study_title)
-        subjects = {**subjects, **study_subjects}
+    # study_id: str = get_study_id_by_title(_CONFIG['GMKF_STUDY_TITLE_NBL'], _CONFIG['GMKF_STUDY_URL'])
+    # studies: dict[str, str] = {study_id: _CONFIG['GMKF_STUDY_TITLE_NBL']}
+    # subjects: dict[str, any] = {}
+    # for study_id, study_title in studies.items():
+    #     study_subjects = get_subjects_by_study_id(study_id, _CONFIG['GMKF_SUBJECT_URL'])
+    #     logger.info('%s subjects found for study %s (\'%s\')', len(study_subjects), study_id, study_title)
+    #     subjects = {**subjects, **study_subjects}
+    # if subjects:
+    #     logger.info('Building external resource file for %d subjects', len(subjects))
+    #     build_external_resource_file(_CONFIG['LOCAL_FILE_PATH'], subjects)
+    # else:
+    #     logger.warning('No subjects found for study %s, external resource file not built', study_id)
 
+    subjects: dict[str, any] = get_subjects_from_file(_CONFIG['GMKF_SUBJECT_FILE_PATH'])
     if subjects:
         logger.info('Building external resource file for %d subjects', len(subjects))
         build_external_resource_file(_CONFIG['LOCAL_FILE_PATH'], subjects)
     else:
-        logger.warning('No subjects found for study %s, external resource file not built', study_id)
+        # TODO: revert after regaining access to API
+        # logger.warning('No subjects found for study %s, external resource file not built', study_id)
+        logger.warning(
+            'No subjects found for subjects in "%s", external resource file not built',
+            _CONFIG['LOCAL_FILE_PATH']
+        )
 
 
 _env_vals: dict[str, str] = dotenv.dotenv_values('../.env')
 
+# pylint: disable=line-too-long
 _CONFIG: dict[str, any] = {
     'LOG_FILE_PATH': './get_gmkf_data.log',
     'LOG_FILE_APPEND': False,
-    'GMKF_STUDY_URL': 'https://kf-api-fhir-service.kidsfirstdrc.org/ResearchStudy',
-    'GMKF_SUBJECT_URL': 'https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject',
-    'GMKF_SUBMITTER_ID_PREFIX': 'TARGET-30-',
+    'GMKF_SUBJECT_FILE_PATH': '/Users/schoi/Workspace/PED/PCDC/Projects/_data/gen3_etl/gmkf/nbl-cog-usis.csv',
+    'GMKF_STUDY_URL': 'https://fhir.kidsfirstdrc.org/ResearchStudy',
+    'GMKF_SUBJECT_URL': 'https://fhir.kidsfirstdrc.org/ResearchSubject',
+    #'GMKF_SUBMITTER_ID_PREFIX': 'GMKF-30-',
+    'GMKF_SUBMITTER_ID_PREFIX': '',
     'GMKF_STUDY_TITLE_NBL': 'Discovering the Genetic Basis of Human Neuroblastoma: A Gabriella Miller Kids First Pediatric Research Program (Kids First) Project',
     'GMKF_STUDY_TITLE_NBL_OLD': 'TARGET: Neuroblastoma (NBL)',
     'EXTERNAL_RESOURCE_ICON_PATH': (
         'https://pcdc-external-resource-files.s3.us-east-1.amazonaws.com/' +
             'Kids_First_Graphic_Horizontal_OL_FINAL.DRC-01-scaled.png'
     ),
-    'RESOURCE_ID_SYSTEM_PARTICIPANTS_URL': 'https://kf-api-dataservice.kidsfirstdrc.org/participants/',
+    'RESOURCE_ID_SYSTEM_PARTICIPANTS_URL': 'https://kf-api-dataservice.kidsfirstdrc.org//participants/',
     'RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN': 'urn:kids-first:unique-string',
-    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participant/',
+    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participants/',
     'EXTERNAL_RESOURCE_NAME': 'GMKF',
     'LOCAL_FILE_PATH': _env_vals['LOCAL_FILE_PATH'],
     'OVERWRITE_EXISTING_EXTERNAL_RESOURCE_FILE': False
 }
+# pylint: enable=line-too-long
 
 if not _CONFIG.get('LOG_FILE_APPEND', False) and os.path.exists(_CONFIG['LOG_FILE_PATH']):
     os.remove(_CONFIG['LOG_FILE_PATH'])
