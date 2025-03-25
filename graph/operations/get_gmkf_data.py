@@ -38,7 +38,7 @@ def get_subjects_by_study_id(study_id: str, url: str) -> dict[str, any]:
     subjects: dict[str, any] = {}
 
     params: dict[str, str] = {'study': study_id}
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject?study=125635
+    # ex: hhttps://fhir.kidsfirstdrc.org/ResearchSubject?study=sd-dypmehhf
     response: requests.Response = requests.get(url, params=params, timeout=30)
     json_data: dict[str, any] = json.loads(response.content)
 
@@ -72,7 +72,7 @@ def get_study_id_by_title(study_title: str, study_url: str) -> str:
     """
     get id of gmkf study with specified title
     """
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchStudy?title=TARGET: Neuroblastoma (NBL)
+    # ex: https://fhir.kidsfirstdrc.org/ResearchStudy?title=Discovering the Genetic Basis...etc...
     # {scheme}://{netloc}/{path}?{query}#{fragment}
     url_parts: collections.namedtuple = urlsplit(study_url)
     query: dict[str, str] = parse_qs(url_parts.query)
@@ -118,7 +118,7 @@ def get_subject_by_subject_id(subject_id: str, base_url: str) -> dict[str, any]:
     """
     get gmkf subject for specified id
     """
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject/134878
+    # ex: https://fhir.kidsfirstdrc.org/ResearchSubject/rs-sab7ybcx
     subject_url: str = urljoin(base_url, subject_id)
 
     logger.info('get_subject_by_subject_id url: %s', subject_url)
