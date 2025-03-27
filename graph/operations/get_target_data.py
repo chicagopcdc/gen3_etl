@@ -163,8 +163,8 @@ _CONFIG: dict[str, any] = {
     'LOG_FILE_PATH': './get_target_data.log',
     'LOG_FILE_APPEND': False,
     'GDC_API_ENDPOINT': 'https://api.gdc.cancer.gov/cases',
-    'GDC_SUBMITTER_ID_PREFIX': 'TARGET-30-',
-    'GDC_PROJECT_ID': 'TARGET-NBL',
+    'GDC_SUBMITTER_ID_PREFIX': 'TARGET-*-',
+    'GDC_PROJECT_ID': 'TARGET-*',
     'EXTERNAL_RESOURCE_ICON_PATH': (
         'https://pcdc-external-resource-files.s3.amazonaws.com/NHI_GDC_DataPortal-logo.23e6ca47.svg'
     ),
