@@ -61,3 +61,4 @@ typing_extensions==4.3.0
 urllib3==1.25.11
 wrapt==1.14.1
 yarl==1.8.1
+numpy==1.22.4

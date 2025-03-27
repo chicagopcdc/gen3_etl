@@ -380,6 +380,23 @@ marshmallow = ">=3.18.0,<4.0.0"
 typing-inspect = ">=0.4.0,<1"
 
 [[package]]
+name = "deepdiff"
+version = "5.8.1"
+description = "Deep Difference and Search of any Python object/data."
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "deepdiff-5.8.1-py3-none-any.whl", hash = "sha256:e9aea49733f34fab9a0897038d8f26f9d94a97db1790f1b814cced89e9e0d2b7"},
+    {file = "deepdiff-5.8.1.tar.gz", hash = "sha256:8d4eb2c4e6cbc80b811266419cb71dd95a157094a3947ccf937a94d44943c7b8"},
+]
+
+[package.dependencies]
+ordered-set = ">=4.1.0,<4.2.0"
+
+[package.extras]
+cli = ["clevercsv (==0.7.1)", "click (==8.0.3)", "pyyaml (==5.4.1)", "toml (==0.10.2)"]
+
+[[package]]
 name = "drsclient"
 version = "0.1.4"
 description = "GA4GH DRS Client"
@@ -395,27 +412,6 @@ backoff = ">=1.10.0,<2.0.0"
 httpx = ">=0.15,<0.16"
 jsonschema = "2.5.1"
 requests = ">=2.23.0,<3.0.0"
-
-[[package]]
-name = "elasticsearch"
-version = "7.10.0"
-description = "Python client for Elasticsearch"
-optional = false
-python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, <4"
-files = [
-    {file = "elasticsearch-7.10.0-py2.py3-none-any.whl", hash = "sha256:9a21bfa7dc6a0b0dc142088bd653d8ce5ab284b4f7a3ded716185adf5276a7fe"},
-    {file = "elasticsearch-7.10.0.tar.gz", hash = "sha256:9053ca99bc9db84f5d80e124a79a32dfa0f7079b2112b546a03241c0dbeda36d"},
-]
-
-[package.dependencies]
-certifi = "*"
-urllib3 = ">=1.21.1,<2"
-
-[package.extras]
-async = ["aiohttp (>=3,<4)"]
-develop = ["black", "coverage", "jinja2", "mock", "pytest", "pytest-cov", "pyyaml", "requests (>=2.0.0,<3.0.0)", "sphinx (<1.7)", "sphinx-rtd-theme"]
-docs = ["sphinx (<1.7)", "sphinx-rtd-theme"]
-requests = ["requests (>=2.4.0,<3.0.0)"]
 
 [[package]]
 name = "fastavro"
@@ -1075,6 +1071,20 @@ files = [
 ]
 
 [[package]]
+name = "ordered-set"
+version = "4.1.0"
+description = "An OrderedSet is a custom MutableSet that remembers its order, so that every"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "ordered-set-4.1.0.tar.gz", hash = "sha256:694a8e44c87657c59292ede72891eb91d34131f6531463aab3009191c77364a8"},
+    {file = "ordered_set-4.1.0-py3-none-any.whl", hash = "sha256:046e1132c71fcf3330438a539928932caf51ddbc582496833e23de611de14562"},
+]
+
+[package.extras]
+dev = ["black", "mypy", "pytest"]
+
+[[package]]
 name = "packaging"
 version = "24.2"
 description = "Core utilities for Python packages"
@@ -1446,19 +1456,20 @@ files = [
 
 [[package]]
 name = "urllib3"
-version = "1.26.20"
+version = "2.2.3"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
 optional = false
-python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,>=2.7"
+python-versions = ">=3.8"
 files = [
-    {file = "urllib3-1.26.20-py2.py3-none-any.whl", hash = "sha256:0ed14ccfbf1c30a9072c7ca157e4319b70d65f623e91e7b32fadb2853431016e"},
-    {file = "urllib3-1.26.20.tar.gz", hash = "sha256:40c2dc0c681e47eb8f90e7e27bf6ff7df2e677421fd46756da1161c39ca70d32"},
+    {file = "urllib3-2.2.3-py3-none-any.whl", hash = "sha256:ca899ca043dcb1bafa3e262d73aa25c465bfb49e0bd9dd5d59f1d0acba2f8fac"},
+    {file = "urllib3-2.2.3.tar.gz", hash = "sha256:e7d814a81dad81e6caf2ec9fdedb284ecc9c73076b62654547cc64ccdcae26e9"},
 ]
 
 [package.extras]
-brotli = ["brotli (==1.0.9)", "brotli (>=1.0.9)", "brotlicffi (>=0.8.0)", "brotlipy (>=0.6.0)"]
-secure = ["certifi", "cryptography (>=1.3.4)", "idna (>=2.0.0)", "ipaddress", "pyOpenSSL (>=0.14)", "urllib3-secure-extra"]
-socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
+brotli = ["brotli (>=1.0.9)", "brotlicffi (>=0.8.0)"]
+h2 = ["h2 (>=4,<5)"]
+socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
+zstd = ["zstandard (>=0.18.0)"]
 
 [[package]]
 name = "werkzeug"
@@ -1611,4 +1622,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">3.8,<=3.10"
-content-hash = "41fa19dbe442be27c0c6e0d8137b70743655209e75ea8f2e2c8cac56987da3f3"
+content-hash = "3f539634c06741a46dc53b28d9799510c351fbc485814175fe095906015397ab"
