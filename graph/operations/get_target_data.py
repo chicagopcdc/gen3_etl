@@ -79,7 +79,7 @@ def build_external_resource_file(path: str, template_url: str = None):
                 ] = existing_external_reference['*submitter_id']
     external_references: list[dict[str, any]] = []
     with open(os.path.join(path, 'gen3_subject.tsv'), mode='r', encoding='utf-8') as tsvfile:
-        tsv_subjects: list[dict[str, any]] = csv.DictReader(tsvfile, dialect='excel-tab')
+        tsv_subjects: list[dict[str, any]] = list(csv.DictReader(tsvfile, dialect='excel-tab'))
 
         tsv_subjects_processed: int = 0
         tsv_subject: dict[str, any]
@@ -87,8 +87,10 @@ def build_external_resource_file(path: str, template_url: str = None):
             tsv_subjects_processed += 1
             if tsv_subjects_processed % 1000 == 0:
                 logger.info(
-                    '%d subjects processed, processing submitter_id %s)',
-                    tsv_subjects_processed, tsv_subject['*submitter_id']
+                    '%d/%d subjects processed, processing submitter_id %s)',
+                    tsv_subjects_processed,
+                    len(tsv_subjects),
+                    tsv_subject['*submitter_id']
                 )
 
             external_reference_submitter_id: str = f"external_reference_gdc_{tsv_subject['*submitter_id']}"
