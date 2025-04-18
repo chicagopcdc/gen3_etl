@@ -192,7 +192,7 @@ class AwsS3:
         self._s3.delete_object(Bucket=bucket_name, Key=object_path)
 
 
-def is_number(value: str):
+def is_number(value: str) -> bool:
     """ Determine whether specified string is number (float or int) """
     try:
         float(value)
@@ -275,7 +275,7 @@ def download_latest_data_file_from_s3(
         json.dump(data, fd_data, indent=2)
 
 
-def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> list[dict[str, any]]:
+def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
     """ Load and return collection of Gen3 subject records from specified file path (gen3_subject.tsv) """
     _logger.info('Loading Gen3 subjects from "%s"', gen3_subject_tsv_file_path)
     fd_subjects: typing.TextIO
@@ -380,7 +380,7 @@ def build_gen3_biospecimen_file(
     gen3_subjects: dict[str, dict[str , any]],
     output_file_path: str
 ) -> None:
-    """ Create TSV file for load into Gen3 portal from raw source JSON file """
+    """ Create TSV file for load into Gen3 portal from specified biospecimen and Gen3 subject records """
     _logger.info('Building biospecimen output file')
 
     project_ids: set[str] = {v['project_id'] for v in gen3_subjects.values()}
@@ -456,11 +456,7 @@ def build_gen3_biospecimen_file(
     # save biospecimen records to specified output path
     fd_tsv: typing.TextIO
     with open(output_file_path, mode='w', encoding='utf-8') as fd_tsv:
-        writer: csv.DictWriter = csv.DictWriter(
-            fd_tsv,
-            fieldnames=output_records[0].keys(),
-            delimiter='\t'
-        )
+        writer: csv.DictWriter = csv.DictWriter(fd_tsv, fieldnames=output_records[0].keys(), delimiter='\t')
         writer.writeheader()
         output_record: dict[str, any]
         for output_record in output_records:
