@@ -157,5 +157,3 @@ if len(sys.argv) > 1:
         print('Now please review the diff file and look for wrong values or wrong mappings.')
     elif sys.argv[1] == 'update_data':
         load_diff_and_update()
-    elif sys.argv[1] == 'get_target_data':
-        build_external_resource_file(local_path, template_url)
