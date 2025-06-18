@@ -13,7 +13,6 @@ from gen3.submission import Gen3Submission
 
 from load import adapt_and_load, is_valid_node_type
 from update_data import get_differences, load_differences
-from get_target_data import build_external_resource_file
 
 
 # set up logging
