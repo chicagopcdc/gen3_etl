@@ -21,23 +21,21 @@ file_path = str(Path("../../graph/fake_data/quick_load").resolve()) + "/"
 
 
 # FAKE DATA
-# types = ["person", "subject", "study", "molecular_analysis", "tumor_assessment", "survival_characteristic", "staging", "histology", "secondary_malignant_neoplasm", "biopsy_surgical_procedure"]
-# INRG
 types = [
     "person",
     "subject",
     "study",
-    "timing",
     "molecular_analysis",
     "tumor_assessment",
     "survival_characteristic",
     "staging",
     "histology",
     "secondary_malignant_neoplasm",
-    "lab",
-    "disease_characteristic",
+    "biopsy_surgical_procedure",
     "external_reference",
-]  # "program", "project", , "external_reference"]
+]
+# INRG
+# types = ["person", "subject", "study", "timing", "molecular_analysis", "tumor_assessment", "survival_characteristic", "staging", "histology", "secondary_malignant_neoplasm", "lab", "disease_characteristic", "external_reference"] #"program", "project", , "external_reference"]
 # types = ["person", "subject", "timing", "lab", "disease_characteristic"]
 number_key = [
     "age_at",
