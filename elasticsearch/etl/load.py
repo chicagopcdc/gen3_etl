@@ -187,7 +187,7 @@ def load_es_data_index(
         if len(bulk_actions) % es_bulk_batch_size == 0:
             try_bulk(es_instance, bulk_actions, es_bulk_max_tries, es_bulk_retry_delay, es_timeout)
             bulk_actions.clear()
-            logger.info('Loaded %d records into index "%s"', i, index_name)
+            logger.info('Loaded %d of %d records into index "%s"', i, len(docs), index_name)
 
     if bulk_actions:
         try_bulk(es_instance, bulk_actions, es_bulk_max_tries, es_bulk_retry_delay)
