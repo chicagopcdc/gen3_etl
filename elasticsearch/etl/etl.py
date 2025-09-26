@@ -6,6 +6,8 @@ import sys
 import json
 import logging
 import os
+import time
+
 from dotenv import load_dotenv
 from gen3.auth import Gen3Auth
 from gen3.submission import Gen3Submission
@@ -74,8 +76,31 @@ def extract() -> dict[str, any]:
         node_data[project] = {}
         node_type: str
         for node_type in node_types:
-            logger.info('Extracting %s ...', node_type)
-            node_data[project][node_type] = sub.export_node(program_name, project_code, node_type, 'json')['data']
+            tries: int = 0
+            while tries < max(es_bulk_max_tries, 1):
+                tries += 1
+                logger.info('Extracting %s %s...', node_type, f'(attempt #{tries}) ' if tries > 1 else '')
+                try:
+                    node_data[project][node_type] = sub.export_node(
+                        program_name,
+                        project_code,
+                        node_type,
+                        'json'
+                    )['data']
+                    break
+                except Exception as err: # pylint: disable=broad-exception-caught
+                    if tries >= es_bulk_max_tries:
+                        logger.critical('Unable to extract %s, max tries (%d) attempted', node_type, es_bulk_max_tries)
+                        raise
+                    logger.warning(
+                        'Error extracting %s (attempt #%d), retrying after %d seconds:',
+                        node_type,
+                        tries,
+                        es_bulk_retry_delay
+                    )
+                    logger.warning(err)
+                    time.sleep(es_bulk_retry_delay)
+
     logger.info('Extract successful')
     return node_data
 
