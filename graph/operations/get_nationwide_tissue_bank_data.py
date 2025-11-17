@@ -285,9 +285,10 @@ def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
         reader: csv.DictReader = csv.DictReader(fd_subjects, delimiter='\t')
         record: dict[str, any]
         for record in reader:
-            if record['*submitter_id'] in subjects:
-                _logger.warning('Subject "%s" loaded more than once')
-            subjects[record['*submitter_id']] = record
+            usi: str = record['*honest_broker_subject_id'].strip().upper()
+            if usi in subjects:
+                _logger.warning('Subject USI "%s" loaded more than once')
+            subjects[usi] = record
     _logger.info('Loaded %d Gen3 subject records', len(subjects))
     return subjects
 
@@ -341,6 +342,7 @@ def get_biospecimen_source_data_indexed(source_file_path: str) -> dict[str, list
 
 
 def build_gen3_biospecimen_record(
+    subject_submitter_id: str,
     biospecimen_source_record: dict[str, any],
     project_id: str,
     subject_submitter_id_counts: dict[str, int]
@@ -356,8 +358,9 @@ def build_gen3_biospecimen_record(
     else:
         qty_val = ''
 
-    subject_submitter_id: str = (f'COG_{biospecimen_source_record["NCH_Assigned_Patient_USI"]}').strip().upper()
     subject_submitter_id_count: int = subject_submitter_id_counts.get(subject_submitter_id)
+    if not subject_submitter_id_count:
+        raise RuntimeError(f'Subject submitter id count not found for subject "{subject_submitter_id}"')
     output_submitter_id: str = f'biospecimen_{subject_submitter_id}_{subject_submitter_id_count}'
     # set sort key e.g. 'biospecimen_COG_PABCDEF_1' => 'biospecimen_COG_PABCDEF_00001' for natural sort ordering
     sortkey: str = f'biospecimen_{subject_submitter_id}_{subject_submitter_id_count:05}'
@@ -388,7 +391,7 @@ def build_gen3_biospecimen_file(
         raise RuntimeError(f'Number of subject project_id values != 1: {project_ids}')
 
     project_id: str = project_ids.pop()
-    subject_submitter_id_counts: dict[str, int] = {k:1 for k in gen3_subjects}
+    subject_submitter_id_counts: dict[str, int] = {v['*submitter_id']:1 for v in gen3_subjects.values()}
     subjects_found: set[str] = set()
     subjects_not_found: set[str] = set()
 
@@ -399,8 +402,9 @@ def build_gen3_biospecimen_file(
 
     output_records: list[dict[str, any]] = []
 
-    gen3_subject_id: str
-    for gen3_subject_id in gen3_subjects:
+    subject_usi: str
+    subject_record: dict[str, any]
+    for subject_usi, subject_record in gen3_subjects.items():
         num_subjects_processed += 1
         if num_subjects_processed % 1000 == 0:
             _logger.info(
@@ -411,7 +415,7 @@ def build_gen3_biospecimen_file(
                 len(subjects_found)
             )
 
-        subject_usi: str = gen3_subject_id.partition('_')[-1].strip().upper()
+        gen3_subject_id: str = subject_record['*submitter_id']
 
         # find source records
         subject_biospecimen_records: list[dict[str, any]] = biospecimen_records.get(subject_usi, [])
@@ -432,7 +436,12 @@ def build_gen3_biospecimen_file(
                 continue
 
             output_records.append(
-                build_gen3_biospecimen_record(subject_biospecimen_record, project_id, subject_submitter_id_counts)
+                build_gen3_biospecimen_record(
+                    gen3_subject_id,
+                    subject_biospecimen_record,
+                    project_id,
+                    subject_submitter_id_counts
+                )
             )
             subject_submitter_id_counts[gen3_subject_id] += 1
 
