@@ -546,7 +546,7 @@ _CONFIG: dict[str, any] = {
     'USE_SAVED_SOURCE_DATA_FILE': True,
     'GEN3_SUBJECT_DIR_PATHS': '["/path/to/parent/or/root/dir/containing/gen3/subject/tsv/files/"]',
     'GEN3_SUBJECT_DIR_IGNORE_PATHS': '["/_"]',
-    'OUTPUT_FILE_NAME': 'gen3_external_reference_gdc.tsv'
+    'OUTPUT_FILE_NAME': 'gen3_external_reference_gmkf.tsv'
 }
 # override config defaults (or set FHIR API auth; see comments above) using .env config file in parent directory
 _config_file_path: str = sys.argv[1] if len(sys.argv) == 2 else '.env_get_gmkf_data'

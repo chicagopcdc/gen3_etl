@@ -209,11 +209,11 @@ def build_external_resource_file(
 
         # ex: COG_PACLAX => data contributor = COG, USI = PACLAX
         gen3_subject_submitter_id_parts: list[str] =  gen3_subject_submitter_id.split('_')
-        if len(gen3_subject_submitter_id_parts) != 2:
+        if len(gen3_subject_submitter_id_parts) < 2:
             _logger.warning('Unexpected/malformed submitter_id: "%s"', gen3_subject_submitter_id)
             continue
 
-        usi: str = gen3_subject_submitter_id_parts[-1]
+        usi: str = gen3_subject['*honest_broker_subject_id'].strip().upper()
         if usi not in gdc_usi_subjects:
             continue
 
