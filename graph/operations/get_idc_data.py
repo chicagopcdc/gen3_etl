@@ -337,8 +337,8 @@ def get_idc_data(source_file_path: str) -> list[dict[str, any]]:
         idc_data_indexed[usi].append(idc_record)
     _logger.info(
         '%d total records loaded for %d unique subjects',
-        len(idc_data_indexed),
-        sum(len(v) for v in idc_data_indexed.values())
+        sum(len(v) for v in idc_data_indexed.values()),
+        len(idc_data_indexed)
     )
     return idc_data_indexed
 
