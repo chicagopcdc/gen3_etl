@@ -36,7 +36,7 @@ logging.getLogger('urllib3').setLevel(logging.ERROR)
 _CONFIG: dict[str, any] = {
     'LOG_FILE_PATH': './get_idc_data.log',
     'LOG_FILE_APPEND': False,
-    'AWS_PROFILE_NAME': 'staging etl-staging',
+    'AWS_PROFILE_NAME': 'idc-staging',
     'S3_BUCKET_NAME': 'idc-index-pull-dev-idc-index-bucket',
     'S3_FILE_PREFIX': 'idc_index_',
     'EXTERNAL_RESOURCE_ICON_PATH': (
