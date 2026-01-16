@@ -315,19 +315,21 @@ def export_records(record_remover: PortalRecordRemover, logger: PortalRecordRemo
     exported_records: list = []
 
     # verify match by associated subject if filter specified in config
-    for record in records:
-        if 'subjects' in record and len(filter_subjects) > 0:
-            if len(record['subjects']) != 1:
-                logger.warning(f'{len(record["subjects"])} subjects found for record, aborting:')
-                logger.warning(record)
-                return
-
-            record_subject: dict[str, any] = record['subjects'][0]
-
-            if not filter_subjects.get(record_subject['node_id'], None):
-                continue
-
-        exported_records.append(record)
+    if not filter_subjects:
+        exported_records.extend(records)
+    else:
+        exported_records.extend(
+            r for r in records if (
+                record_remover.node_type == PortalRecordRemover.NODE_TYPE_SUBJECT and r['id'] in filter_subjects
+                or
+                'subjects' in r and r['subjects'][0]['node_id'] in filter_subjects
+            )
+        )
+    if exported_records:
+        logger.info('Saving %d exported records to export.txt', len(exported_records))
+    else:
+        logger.warning('No exported records to be saved')
+        return
 
     exported_records.sort(key=lambda r:r[record_remover.portal_source_record_id_field])
     with open('export.txt', mode='w', encoding='utf-8') as export_fd:
@@ -478,15 +480,22 @@ def remove_records(record_remover: PortalRecordRemover, logger: PortalRecordRemo
                 continue
 
             # verify match by associated subject if filter specified in config
-            if len(filter_subjects) > 0 and 'subjects' in record:
-                if len(record['subjects']) != 1:
-                    logger.warning(f'{len(record["subjects"])} subjects found for record, aborting:')
-                    logger.warning(record)
-                    continue
+            if filter_subjects:
+                if node_type != PortalRecordRemover.NODE_TYPE_SUBJECT and 'subjects' in record:
+                    if len(record['subjects']) != 1:
+                        logger.warning(f'{len(record["subjects"])} subjects found for record, skipping:')
+                        logger.warning(record)
+                        continue
 
-                record_subject: dict[str, any] = record['subjects'][0]
+                    record_subject: dict[str, any] = record['subjects'][0]
 
-                if not filter_subjects.get(record_subject['node_id'], None):
+                    if record_subject['node_id'] not in filter_subjects:
+                        continue
+                elif (
+                    node_type == PortalRecordRemover.NODE_TYPE_SUBJECT
+                    and
+                    record[record_remover.portal_uuid_field] not in filter_subjects
+                ):
                     continue
 
             # record qualifies for deletion, add to delete list

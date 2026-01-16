@@ -45,8 +45,7 @@ REF_FIELDS: dict[str, str] = {
 }
 
 BIOSPECIMEN_STATUS_FIELD: str = f'{NODE_TYPE_BIOSPECIMEN}_status'
-BIOSPECIMEN_STATUS_ABSENT: str = 'Absent'
-BIOSPECIMEN_STATUS_PRESENT: str = 'Present'
+BIOSPECIMEN_STATUS_PRESENT: str = 'COG Biopathology Center'
 
 # suppress or populate fields as specified in config, with allow taking precedence over deny if both specified
 #   {
@@ -683,9 +682,6 @@ def create_subject_record(
         if subject_timings_yadp:
             subject['year_at_disease_phase'] = subject_timings_yadp[-1]['year_at_disease_phase']
     ### END PATCH
-
-    # init subject biospecimen status to 'Absent' if not set; change to 'Present' if biospecimen records provided
-    subject[BIOSPECIMEN_STATUS_FIELD] = subject.get(BIOSPECIMEN_STATUS_FIELD, BIOSPECIMEN_STATUS_ABSENT)
 
     return subject
 

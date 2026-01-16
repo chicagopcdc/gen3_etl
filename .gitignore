@@ -8,9 +8,9 @@
 
 __pycache__
 
-
 *.log
 *.pickle
+*.zip
 credentials*.json
 
 credential_files
@@ -31,5 +31,7 @@ graph/data-simulator
 graph/fake_data/*
 graph/.test
 
+graph/operations/*.csv
 graph/operations/*.json
+graph/operations/*.sh
 graph/operations/*.tsv

@@ -1,216 +1,422 @@
 """
 Retrieve external data from GMKF
 """
-import collections
+import ast
+import csv
+import io
 import json
 import logging
 import os
+from pathlib import Path
 import sys
-import csv
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
+import typing
 
-import requests
 import dotenv
+import requests
 
 
-def normalize_gmkf_url(orig_url: str, gmkf_returned_url: str) -> str:
+def is_number(value: str) -> bool:
+    """ Determine whether specified string is number (float or int) """
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def get_all_files(root_path: str, skip_paths: list[str] = None, log_skipped_files: bool = True) -> list[str]:
+    """ Get list of all file paths within specified root path with optional list of path(s) to skip/ignore """
+    if not root_path or not os.path.isdir(root_path):
+        raise RuntimeError(f'Root path not specified or invalid dir: "{root_path}"')
+
+    all_files: list[str] = []
+    dir_path: str
+    file_names: list[str]
+    # os.walk is fully recursive
+    for dir_path, _, file_names in os.walk(root_path):
+        dir_files: list[str] = [os.path.join(dir_path, f) for f in file_names]
+        skip_path: str
+        for skip_path in (skip_paths or []):
+            if skip_path and skip_path in dir_path[len(root_path) - 1:]:
+                ignore_files: list[str] = [f for f in dir_files if any(p for p in skip_paths if p in f)]
+                if log_skipped_files:
+                    ignore_file: str
+                    for ignore_file in ignore_files:
+                        _logger.info('Skipping "%s" per config', ignore_file)
+                dir_files = [f for f in dir_files if f not in ignore_files]
+
+        all_files.extend(dir_files)
+    all_files.sort()
+    return all_files
+
+
+def get_all_subject_files(root_path: str, skip_paths: list[str] = None, log_skipped_files: bool = True) -> list[str]:
     """
-    URLs e.g. for paged search results, come back from GMKF API with host set to localhost, e.g.
-    http://localhost:8000?_getpages=5e5c3a52-8032-4aee-a424-c5891b0d818a&_getpagesoffset=50&_co...etc
-    instead of http://[gmkf_api_hostname]?_getpages=etc. This method will correct the hostname by
-    parsing (safer than find/replace) to split URL into component parts and correct 'netloc'
-    (aka host) with correct hostname as specified in original URL.
+    Get list of all subject (gen3_subject.tsv) file paths within specified
+    root path with optional list of path(s) to skip/ignore
     """
-    normalized_url: str = gmkf_returned_url
-    # {scheme}://{netloc}/{path}?{query}#{fragment}
-    orig_url_parts: collections.namedtuple = urlsplit(orig_url)
-    gmkf_url_parts: collections.namedtuple = urlsplit(gmkf_returned_url)
-    if 'localhost' in gmkf_url_parts[1]:
-        return gmkf_url_parts._replace(netloc=orig_url_parts.netloc).geturl()
-    return normalized_url
+    subject_file_paths: list[str] = []
+
+    all_subject_file_paths: list[str] = [f for f in get_all_files(root_path) if f.endswith('/gen3_subject.tsv')]
+    subject_file_path: str
+    for subject_file_path in all_subject_file_paths:
+        skip_path: str
+        for skip_path in (skip_paths or []):
+            if skip_path and skip_path in subject_file_path[len(root_path) - 1:]:
+                if log_skipped_files:
+                    _logger.info('Skipping "%s" per config', subject_file_path)
+        if not any(sp and sp in subject_file_path[len(root_path) - 1:] for sp in skip_paths):
+            subject_file_paths.append(subject_file_path)
+
+    return subject_file_paths
 
 
-def get_subjects_by_study_id(study_id: str, url: str) -> dict[str, any]:
+def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
+    """ Load and return collection of Gen3 subject records from specified file path (gen3_subject.tsv) """
+    _logger.info('Loading Gen3 subjects from "%s"', gen3_subject_tsv_file_path)
+    fd_subjects: typing.TextIO
+    gen3_subject_tsv_file_path: str
+    subjects: dict[str, dict[str, any]] = {}
+    with open(gen3_subject_tsv_file_path, 'r', encoding='utf-8') as fd_subjects:
+        reader: csv.DictReader = csv.DictReader(fd_subjects, delimiter='\t')
+        record: dict[str, any]
+        for record in reader:
+            if record['*submitter_id'] in subjects:
+                _logger.warning('Subject "%s" loaded more than once')
+            subjects[record['*submitter_id']] = record
+    _logger.info('Loaded %d Gen3 subject records', len(subjects))
+    return subjects
+
+
+def get_subject_external_participant_id(subject: dict[str, any]) -> str:
     """
-    get gmkf fhir resource(s) for specified study and url
+    get external participant id ('GMKF-30-{USI}NN' format e.g. 'GMKF-30-ABCDEF03') for specified fhir (json) subject
     """
-    subjects: dict[str, any] = {}
+    identifier: dict[str, any]
+    for identifier in subject['resource']['identifier']:
+        if identifier['use'] == 'secondary':
+            return identifier['value']
 
-    params: dict[str, str] = {'study': study_id}
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject?study=125635
-    response: requests.Response = requests.get(url, params=params, timeout=30)
-    json_data: dict[str, any] = json.loads(response.content)
+    return None
 
+
+def get_external_participant_id_usi(external_participant_id: str) -> str:
+    """ get USI for specified external participant id ('GMKF-30-{USI}NN' format e.g. 'GMKF-30-ABCDEF03' => ABCDEF) """
+    if '-' not in external_participant_id:
+        return None
+    usi: str = external_participant_id.split(_CONFIG.get('GMKF_SUBMITTER_ID_PREFIX', '-'))[-1]
+    suffix: str = usi[-2:]
+    return usi[:-2] if is_number(suffix) and float(suffix).is_integer() else None
+
+
+def get_external_participant_id_index(external_participant_id: str) -> int:
+    """ get index for specified external participant id ('GMKF-30-{USI}NN' format e.g. 'GMKF-30-ABCDEF03' => 03) """
+    if '-' not in external_participant_id:
+        return None
+    usi: str = external_participant_id.split('-')[-1]
+    suffix: str = usi[-2:]
+    return int(float(suffix)) if is_number(suffix) and float(suffix).is_integer() else None
+
+
+def get_json_from_url(
+    url: str,
+    timeout: int = 30,
+    cookies: dict[str, str] = None,
+    params: dict[str, str] = None
+) -> any:
+    """ get json content data as python object from specified url """
+    try:
+        response: requests.Response = requests.get(url, timeout=timeout, cookies=cookies, params=params)
+        response.raise_for_status()
+        return json.loads(response.content)
+    except requests.exceptions.HTTPError as http_error:
+        _logger.error('HTTP error retrieving JSON content from URL:')
+        _logger.exception(http_error)
+        if cookies:
+            _logger.error('Verify valid auth token in cookie')
+        raise
+    except json.decoder.JSONDecodeError as json_decode_error:
+        _logger.error('JSON decode error retrieving JSON content from URL:')
+        _logger.exception(json_decode_error)
+        raise
+    except Exception as err:
+        _logger.error('Error retrieving JSON content from URL :')
+        _logger.exception(err)
+        raise
+
+
+def get_gmkf_studies(output_file_path: str, request_cookies: dict[str, str] = None) -> list[dict[str, any]]:
+    """ get all gmkf studies available in API """
+    if _CONFIG.get('USE_SAVED_SOURCE_DATA_FILE', True) and os.path.exists(output_file_path):
+        _logger.info('Retrieving GMKF data from local source file "%s"', output_file_path)
+        with open(output_file_path, 'r', encoding='utf-8') as fp:
+            return json.load(fp)
+
+    _logger.info('Loading GMKF studies and saving to "%s"', output_file_path)
+    json_data: dict[str, any] = get_json_from_url(_CONFIG['GMKF_STUDY_URL'], cookies=request_cookies)
+    if 'entry' not in json_data:
+        raise RuntimeError('Expected attribute "entry" not found in JSON response data')
+    fp: io.TextIOWrapper
+    with open(output_file_path, 'w', encoding='utf-8') as fp:
+        json.dump(json_data['entry'], fp)
+
+    return json_data['entry']
+
+
+def get_gmkf_subjects_all(output_file_path: str, request_cookies: dict[str, str] = None) -> list[dict[str, any]]:
+    """ get all gmkf subjects available in API """
+    if _CONFIG.get('USE_SAVED_SOURCE_DATA_FILE', True) and os.path.exists(output_file_path):
+        _logger.info('Retrieving GMKF data from local source file "%s"', output_file_path)
+        with open(output_file_path, 'r', encoding='utf-8') as fp:
+            return json.load(fp)
+
+    _logger.info('Loading all GMKF studies and saving to "%s"', output_file_path)
+
+    json_data: dict[str, any] = get_json_from_url(_CONFIG['GMKF_SUBJECT_URL'], cookies=request_cookies)
+
+    total_entries: int = json_data['total']
+    entries_processed: int = 0
+    subjects: list[dict[str, any]] = []
     while True:
         # enumerate entries returned by GMKF API and then follow 'link' if populated
-        entry: dict[str, any]
-        for entry in json_data['entry']:
-            identifier: dict[str, any]
-            for identifier in entry['resource']['identifier']:
-                if 'system' not in identifier and identifier['value'].startswith(_CONFIG['GMKF_SUBMITTER_ID_PREFIX']):
-                    subjects[identifier['value']] = entry
+        _logger.info(
+            'Processing %d => %d of %d remote subject entries',
+            entries_processed + 1,
+            entries_processed + len(json_data['entry']),
+            total_entries
+        )
+        entries_processed += len(json_data['entry'])
+        subjects.extend(json_data['entry'])
 
 		# 'link' property will be populated with a follow-up URL for paged results
         next_page_url: str = None
         link: dict[str, any]
         for link in [l for l in json_data['link'] if l['relation'] == 'next']:
             # paged response
-            next_page_url = normalize_gmkf_url(url, link['url'])
+            next_page_url = link['url']
             break
 
         if not next_page_url:
             break
 
-        json_data = requests.get(next_page_url, timeout=30)
-        json_data = json.loads(json_data.content)
+        json_data = get_json_from_url(next_page_url, cookies=request_cookies)
+
+    _logger.info('Saving %d subjects to "%s"', len(subjects), output_file_path)
+    fp: io.TextIOWrapper
+    with open(output_file_path, 'w', encoding='utf-8') as fp:
+        json.dump(subjects, fp)
 
     return subjects
 
 
-def get_study_id_by_title(study_title: str, study_url: str) -> str:
-    """
-    get id of gmkf study with specified title
-    """
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchStudy?title=TARGET: Neuroblastoma (NBL)
-    # {scheme}://{netloc}/{path}?{query}#{fragment}
-    url_parts: collections.namedtuple = urlsplit(study_url)
-    query: dict[str, str] = parse_qs(url_parts.query)
-    query.update({'title': study_title})
-    url: str = url_parts._replace(query=urlencode(query)).geturl()
+def get_gmkf_subjects_by_study_id(
+    study_id: str,
+    output_file_path: str,
+    request_cookies: dict[str, str] = None
+) -> dict[str, dict[str, any]]:
+    """ get gmkf fhir resource(s) for specified study """
+    if _CONFIG.get('USE_SAVED_SOURCE_DATA_FILE', True) and os.path.exists(output_file_path):
+        _logger.info('Retrieving GMKF data from local source file "%s"', output_file_path)
+        with open(output_file_path, 'r', encoding='utf-8') as fp:
+            return json.load(fp)
 
+    lowest_usi_external_participant_ids: dict[str, str] = {}
+    subjects: dict[str, dict[str, any]] = {}
+    subject_usi_external_participant_ids: dict[str, str] = {}
+
+    params: dict[str, str] = {'study': study_id}
+    # ex: https://fhir.kidsfirstdrc.org/ResearchSubject?study=sd-dypmehhf
+    json_data: dict[str, any] = get_json_from_url(_CONFIG['GMKF_SUBJECT_URL'], cookies=request_cookies, params=params)
+
+    external_participant_id: str
+    usi: str
+
+    total_entries: int = json_data['total']
+    entries_processed: int = 0
+    while True:
+        # enumerate entries returned by GMKF API and then follow 'link' if populated
+        _logger.info(
+            'Processing %d => %d of %d remote subject entries',
+            entries_processed + 1,
+            entries_processed + len(json_data['entry']),
+            total_entries
+        )
+        entries_processed += len(json_data['entry'])
+        entry: dict[str, any]
+        for entry in json_data['entry']:
+            external_participant_id = get_subject_external_participant_id(entry)
+            if not external_participant_id:
+                _logger.warning('No external participant id (secondary identity) found for subject entry: %s', entry)
+                continue
+
+            usi = get_external_participant_id_usi(external_participant_id)
+            if not usi:
+                _logger.warning('No USI found for subject entry: %s', entry)
+                continue
+
+            external_participant_id_index: int = get_external_participant_id_index(external_participant_id)
+            if external_participant_id_index < lowest_usi_external_participant_ids.get(usi, sys.maxsize):
+                lowest_usi_external_participant_ids[usi] = external_participant_id_index
+                subjects[usi] = entry
+                subject_usi_external_participant_ids[usi] = external_participant_id
+
+		# 'link' property will be populated with a follow-up URL for paged results
+        next_page_url: str = None
+        link: dict[str, any]
+        for link in [l for l in json_data['link'] if l['relation'] == 'next']:
+            # paged response
+            next_page_url = link['url']
+            break
+
+        if not next_page_url:
+            break
+
+        response = requests.get(next_page_url, timeout=30, cookies=request_cookies)
+        json_data = json.loads(response.content)
+
+    for usi, external_participant_id in subject_usi_external_participant_ids.items():
+        if get_external_participant_id_index(external_participant_id) != 3:
+            raise RuntimeError(f'Unexpected external participant id for USI {usi}: {external_participant_id}')
+
+    _logger.info('%d subjects with unique USIs found for %d total remote subjects', len(subjects), total_entries)
+
+    _logger.info('Saving %d GMKF subjects to "%s"', len(subjects), output_file_path)
+    with open(output_file_path, mode='w', encoding='utf-8') as fp:
+        json.dump(subjects, fp)
+
+    return subjects
+
+
+def get_gmkf_study_id_by_title(study_title: str, request_cookies: dict[str, str] = None) -> str:
+    """ get id of gmkf study with specified title """
     err_msg: str
+
+    params: dict[str, str] = {'title': study_title}
     try:
-        response: requests.Response = requests.get(url, timeout=30)
-        if not response.ok:
-            response.raise_for_status()
-        json_data: dict[str, any] = json.loads(response.content)
+        # e.g. https://fhir.kidsfirstdrc.org/ResearchStudy?title=Discovering...
+        json_data: dict[str, any] = get_json_from_url(_CONFIG['GMKF_STUDY_URL'], cookies=request_cookies, params=params)
 
         studies: list[dict[str, any]] = json_data.get('entry', [])
         if len(studies) != 1:
             err_msg = f'ERROR: {len(studies)} studies returned with title {study_title}'
-            logger.critical(err_msg)
-            logger.critical(json_data)
+            _logger.critical(err_msg)
+            _logger.critical(json_data)
             raise RuntimeError(err_msg)
 
         if studies[0]['resource'] and studies[0]['resource']['id']:
             return studies[0]['resource']['id']
 
         err_msg = 'ERROR: Unable to get study id, check the response body:'
-        logger.critical(err_msg)
-        logger.critical(json_data)
+        _logger.critical(err_msg)
+        _logger.critical(json_data)
         raise RuntimeError(err_msg)
     except requests.exceptions.HTTPError as http_error:
-        logger.error('HTTP error retrieving getting study id by title:')
-        logger.exception(http_error)
+        _logger.error('HTTP error retrieving getting study id by title:')
+        _logger.exception(http_error)
         raise
     except json.decoder.JSONDecodeError as json_decode_error:
-        logger.error('JSON decode error getting study id by title:')
-        logger.exception(json_decode_error)
+        _logger.error('JSON decode error getting study id by title:')
+        _logger.exception(json_decode_error)
         raise
     except Exception as err:
-        logger.error('Error getting study id by title:')
-        logger.exception(err)
+        _logger.error('Error getting study id by title:')
+        _logger.exception(err)
         raise
 
 
-def get_subject_by_subject_id(subject_id: str, base_url: str) -> dict[str, any]:
+def get_gmkf_subjects_from_file(file_path: str) -> dict[str, dict[str, any]]:
     """
-    get gmkf subject for specified id
+    get gmkf subjects from specified file
     """
-    # ex: https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject/134878
-    subject_url: str = urljoin(base_url, subject_id)
+    if not os.path.isfile(file_path):
+        raise RuntimeError(f'Unable to load subjects from path: "{file_path}"')
+    csv_fd: io.TextIOWrapper
+    csv_reader: csv.DictReader
+    with open(file_path, 'r', encoding='utf-8') as csv_fd:
+        csv_reader = csv.DictReader(csv_fd)
+        subjects: list[dict[str, any]] = list(csv_reader)
+        return {s['cog_usi']:s for s in subjects}
 
-    logger.info('get_subject_by_subject_id url: %s', subject_url)
-    response: requests.Response = requests.get(subject_url, timeout=30)
-    return json.loads(response.content)
 
+def build_external_resource_file(
+    gmkf_subjects: dict[str, dict[str, any]],
+    gen3_subjects: dict[str, dict[str, any]],
+    output_file_path: str
+) -> None:
+    """ Create TSV file for load into Gen3 portal from specified GMKF and Gen3 subject records """
+    _logger.info('Building external resource file')
 
-def build_external_resource_file(path: str, gmkf_subjects: dict[str, any]):
-    """
-    Build (append if already exists) gen3_external_reference.tsv file for subjects found at specified path
-    """
-    logger.info('Building external resource file')
-
-    external_reference_file_path: str = os.path.join(path, 'gen3_external_reference.tsv')
-    existing_external_reference_submitter_ids: dict[str, str] = {}
-    if os.path.exists(external_reference_file_path):
-        with open(external_reference_file_path, mode='r', encoding='utf-8') as tsvfile:
-            existing_external_references: list[dict[str, any]] = csv.DictReader(tsvfile, dialect='excel-tab')
-            existing_external_reference: dict[str, any]
-            for existing_external_reference in existing_external_references:
-                existing_external_reference_submitter_ids[
-                    existing_external_reference['*submitter_id']
-				] = existing_external_reference['*submitter_id']
     external_references: list[dict[str, any]] = []
-    with open(os.path.join(path, 'gen3_subject.tsv'), mode='r', encoding='utf-8') as tsvfile:
-        tsv_subjects: list[dict[str, any]] = csv.DictReader(tsvfile, dialect='excel-tab')
 
-        tsv_subjects_processed: int = 0
-        tsv_subject: dict[str, any]
-        for tsv_subject in tsv_subjects:
-            tsv_subjects_processed += 1
-            if tsv_subjects_processed % 1000 == 0:
-                logger.info(
-                    '%d subjects processed, processing submitter_id %s)',
-                    tsv_subjects_processed, tsv_subject['*submitter_id']
-                )
+    gen3_subjects_processed: int = 0
+    gen3_subject_submitter_id: str
+    gen3_subject: dict[str, any]
+    for gen3_subject_submitter_id, gen3_subject in gen3_subjects.items():
+        gen3_subjects_processed += 1
+        if gen3_subjects_processed % 1000 == 0:
+            _logger.info(
+                '%d/%d subjects processed, processing submitter_id %s)',
+                gen3_subjects_processed,
+                len(gen3_subjects),
+                gen3_subject_submitter_id
+            )
 
-            external_reference_submitter_id: str = f'external_reference_gmkf_{tsv_subject["*submitter_id"]}'
+        external_reference_submitter_id: str = f'external_reference_gmkf_{gen3_subject_submitter_id}_1'
 
-            # if we don't want to overwrite an existing external resource file (appending if exists)
-            # then we also don't want to overwrite/update existing records in the file either
-            # so skip if there's an existing file and this record is present there.
-            if ((not _CONFIG.get('OVERWRITE_EXISTING_EXTERNAL_RESOURCE_FILE', False)) and
-                external_reference_submitter_id in existing_external_reference_submitter_ids):
-                logger.info('%s: existing external reference entry found, skipping', external_reference_submitter_id)
-                continue
+        gmkf_submitter_id: str = gen3_subject['*honest_broker_subject_id']
+        if not gmkf_subjects.get(gmkf_submitter_id):
+            continue
 
-            gmkf_submitter_id: str = _CONFIG['GMKF_SUBMITTER_ID_PREFIX'] + tsv_subject['*honest_broker_subject_id']
-            if gmkf_submitter_id in gmkf_subjects and gmkf_subjects[gmkf_submitter_id]:
-                external_obj: dict[str, any] = {}
-                external_obj['type'] = 'external_reference'
-                external_obj['project_id'] = tsv_subject['project_id']
-                external_obj['*subjects.submitter_id'] = tsv_subject['*submitter_id']
-                external_obj['external_resource_icon_path'] = _CONFIG['EXTERNAL_RESOURCE_ICON_PATH']
-                external_obj['external_resource_id'] = 2
-                external_obj['external_resource_name'] = _CONFIG['EXTERNAL_RESOURCE_NAME']
-                external_obj['*submitter_id'] = external_reference_submitter_id
+        external_obj: dict[str, any] = {}
+        external_obj['type'] = 'external_reference'
+        external_obj['project_id'] = gen3_subject['project_id']
+        external_obj['*subjects.submitter_id'] = gen3_subject_submitter_id
+        external_obj['external_resource_icon_path'] = _CONFIG['EXTERNAL_RESOURCE_ICON_PATH']
+        external_obj['external_resource_id'] = 2
+        external_obj['external_resource_name'] = _CONFIG['EXTERNAL_RESOURCE_NAME']
+        external_obj['*submitter_id'] = external_reference_submitter_id
 
-                identifier: dict[str, any]
-                for identifier in gmkf_subjects[gmkf_submitter_id]['resource']['identifier']:
-                    if 'system' in identifier:
-                        if identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_PARTICIPANTS_URL']:
-                            external_obj['external_subject_submitter_id'] = str(identifier['value'])
-                        elif identifier['system'] == _CONFIG['RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN']:
-                            external_obj['external_subject_id'] = str(identifier['value'])
-
-                if external_obj['external_subject_submitter_id']:
+        # determine whether our source data was retrieved from flat file or API
+        if gmkf_subjects[gmkf_submitter_id].get('resource', {}).get('identifier'):
+            # API-sourced subject record
+            identifier: dict[str, any]
+            for identifier in gmkf_subjects[gmkf_submitter_id]['resource']['identifier']:
+                if (
+                    identifier['use'] == 'official'
+                    and
+                    identifier.get('system') == _CONFIG['RESOURCE_ID_SYSTEM_PARTICIPANTS_URL']
+                ):
+                    external_obj['external_subject_submitter_id'] = str(identifier['value'])
                     external_obj['external_subject_url'] = (
                         _CONFIG['EXTERNAL_SUBJECT_URL_PREFIX'] + external_obj['external_subject_submitter_id']
                     )
-                external_obj['external_links'] = (
-                    external_obj['external_resource_name'] + '|' +
-                        external_obj['external_resource_icon_path'] + '|' +
-                        external_obj['external_subject_url']
-                )
-
-                external_references.append(external_obj)
-
-        logger.info(
-            '%d subjects processed, %d external references loaded, creating/appending tsv output file',
-            tsv_subjects_processed, len(external_references)
+                elif identifier.get('system') == _CONFIG['RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN']:
+                    external_obj['external_subject_id'] = str(identifier['value'])
+        else:
+            # file-sourced subject record
+            external_obj['external_subject_submitter_id'] = gmkf_subjects[gmkf_submitter_id]['kf_participant_id']
+            external_obj['external_subject_url'] = (
+                _CONFIG['EXTERNAL_SUBJECT_URL_PREFIX'] + external_obj['external_subject_submitter_id']
+            )
+        external_obj['external_links'] = (
+            external_obj['external_resource_name'] + '|' +
+                external_obj['external_resource_icon_path'] + '|' +
+                external_obj['external_subject_url']
         )
 
+        external_references.append(external_obj)
+
     if not external_references:
-        logger.warning('No external references loaded, tsv output file not created/appended')
+        _logger.warning('No new/updated external references loaded, tsv output file not created')
         return
 
-    write_header: bool = not os.path.exists(external_reference_file_path)
-    with open(
-        external_reference_file_path,
-        mode='w' if _CONFIG.get('OVERWRITE_EXISTING_EXTERNAL_RESOURCE_FILE', False) else 'a',
-        encoding='utf-8'
-    ) as external_file:
+    _logger.info(
+        '%d subjects processed, %d external references loaded, creating tsv output file',
+        gen3_subjects_processed, len(external_references)
+    )
+
+    fp: io.TextIOWrapper
+    with open(output_file_path, 'w', encoding='utf-8') as fp:
         fieldnames: list[str] = [
             'type',
             'project_id',
@@ -224,53 +430,130 @@ def build_external_resource_file(path: str, gmkf_subjects: dict[str, any]):
             'external_subject_url',
             'external_links'
         ]
-        external_writer: csv.DictWriter = csv.DictWriter(external_file, fieldnames=fieldnames, dialect='excel-tab')
-        if write_header:
-            external_writer.writeheader()
-        external_writer.writerows(external_references)
+        writer: csv.DictWriter = csv.DictWriter(fp, fieldnames=fieldnames, dialect='excel-tab')
+        writer.writeheader()
+        writer.writerows(external_references)
 
 
 def main():
-    """
-    Standalone entry point
-    """
-    # NOTE the IDs in the FHIR server can be different.They change with different loads.
-    study_id: str = get_study_id_by_title(_CONFIG['GMKF_STUDY_TITLE_NBL'], _CONFIG['GMKF_STUDY_URL'])
-    studies: dict[str, str] = {study_id: _CONFIG['GMKF_STUDY_TITLE_NBL']}
-    subjects: dict[str, any] = {}
-    for study_id, study_title in studies.items():
-        study_subjects = get_subjects_by_study_id(study_id, _CONFIG['GMKF_SUBJECT_URL'])
-        logger.info('%s subjects found for study %s (\'%s\')', len(study_subjects), study_id, study_title)
-        subjects = {**subjects, **study_subjects}
+    """ Standalone entry point """
+    literal_eval_config_vars: dict[str, str] = {'USE_SAVED_SOURCE_DATA_FILE': 'False'}
+    literal_eval_config_var_name: str
+    literal_eval_config_var_default_val: str
+    for literal_eval_config_var_name, literal_eval_config_var_default_val in literal_eval_config_vars.items():
+        if literal_eval_config_var_name in _CONFIG:
+            _CONFIG[literal_eval_config_var_name] = ast.literal_eval(
+                str(_CONFIG.get(literal_eval_config_var_name, literal_eval_config_var_default_val))
+            )
 
-    if subjects:
-        logger.info('Building external resource file for %d subjects', len(subjects))
-        build_external_resource_file(_CONFIG['LOCAL_FILE_PATH'], subjects)
+    gmkf_subjects: dict[str, dict[str, any]] = {}
+    if _CONFIG.get('GMKF_SUBJECT_FILE_PATH'):
+        _logger.info('Building external resource file using source file %s', _CONFIG['GMKF_SUBJECT_FILE_PATH'])
+        gmkf_subjects = get_gmkf_subjects_from_file(_CONFIG['GMKF_SUBJECT_FILE_PATH'])
+        if not gmkf_subjects:
+            raise RuntimeError(
+                f'No subjects found for subjects in "{_CONFIG["LOCAL_FILE_PATH"]}", external resource file not built'
+            )
     else:
-        logger.warning('No subjects found for study %s, external resource file not built', study_id)
+        _logger.info('Building external resource file using FHIR API')
+        cookies: dict[str, str] = {'arc-user': _CONFIG['GMKF_AUTH_ARC_USER']}
+        study_title: str
+        for study_title in _CONFIG['GMKF_STUDY_TITLES']:
+            study_id: str = get_gmkf_study_id_by_title(study_title, cookies)
+            study_subjects: dict[str, dict[str, any]] = get_gmkf_subjects_by_study_id(
+                study_id,
+                f'./gmkf_data_{study_id}.json',
+                cookies
+            )
+            _logger.info('%d subjects found for study "%s" ("%s")', len(study_subjects), study_id, study_title)
+            gmkf_subjects = {**gmkf_subjects, **study_subjects}
+        if not gmkf_subjects:
+            raise RuntimeError(f'No GMKF subjects found for specified studies: "{_CONFIG["GMKF_STUDY_TITLES"]}"')
 
+    _logger.info('%d GMKF subjects loaded', len(gmkf_subjects))
 
-_env_vals: dict[str, str] = dotenv.dotenv_values('../.env')
+    output_file_name: str = _CONFIG.get('OUTPUT_FILE_NAME', 'gen3_external_reference_gmkf.tsv')
+    gen3_subject_dir_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_PATHS', '[]'))
+    gen3_subject_dir_ignore_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_IGNORE_PATHS', '[]'))
+
+    gen3_subject_file_paths: list[str] = []
+    gen3_subject_dir_path: str
+    for gen3_subject_dir_path in gen3_subject_dir_paths:
+        gen3_subject_file_paths.extend(get_all_subject_files(gen3_subject_dir_path, gen3_subject_dir_ignore_paths))
+
+    if not gen3_subject_file_paths:
+        raise RuntimeError('No subject files found; check source subject and ignore path(s) in config')
+
+    _logger.info('Processing %d Gen3 TSV subject dir path(s)', len(gen3_subject_dir_paths))
+    output_files_created: list[str] = []
+    output_file_path: str
+    subject_file_processing_index: int = 1
+    gen3_subject_file_path: str
+    for gen3_subject_file_path in gen3_subject_file_paths:
+        gen3_subjects: dict[str, dict[str, any]] = get_gen3_subjects(gen3_subject_file_path)
+        gen3_subjects = {k:v for k,v in gen3_subjects.items() if k.startswith('COG_')}
+        if not gen3_subjects:
+            _logger.info('No COG subjects found in "%s", skipping', gen3_subject_file_path)
+            continue
+
+        output_file_path = os.path.join(Path(gen3_subject_file_path).parent.absolute(), output_file_name)
+        _logger.info(
+            '%d/%d: Building Gen3 external reference TSV file for %d COG subjects in "%s" and saving to "%s"',
+            subject_file_processing_index,
+            len(gen3_subject_file_paths),
+            len(gen3_subjects),
+            gen3_subject_file_path,
+            output_file_path
+        )
+
+        build_external_resource_file(gmkf_subjects, gen3_subjects, output_file_path)
+        if not os.path.exists(output_file_path):
+            _logger.warning('Output file "%s" not found, verify output file build was successful', output_file_path)
+        else:
+            output_files_created.append(output_file_path)
+        subject_file_processing_index += 1
+
+    _logger.info('%d external reference output file(s) created:', len(output_files_created))
+    for output_file_path in output_files_created:
+        _logger.info(output_file_path)
+    #build_external_resource_file(_CONFIG['LOCAL_FILE_PATH'], subjects)
+
 
 _CONFIG: dict[str, any] = {
     'LOG_FILE_PATH': './get_gmkf_data.log',
     'LOG_FILE_APPEND': False,
-    'GMKF_STUDY_URL': 'https://kf-api-fhir-service.kidsfirstdrc.org/ResearchStudy',
-    'GMKF_SUBJECT_URL': 'https://kf-api-fhir-service.kidsfirstdrc.org/ResearchSubject',
-    'GMKF_SUBMITTER_ID_PREFIX': 'TARGET-30-',
-    'GMKF_STUDY_TITLE_NBL': 'Discovering the Genetic Basis of Human Neuroblastoma: A Gabriella Miller Kids First Pediatric Research Program (Kids First) Project',
-    'GMKF_STUDY_TITLE_NBL_OLD': 'TARGET: Neuroblastoma (NBL)',
+    # credentials for FHIR API; log in to e.g. https://fhir.kidsfirstdrc.org/ResearchSubject?study=sd-dypmehhf, find
+    # cookie 'arc-user' using browser dev tools, then save value to GMKF_AUTH_ARC_USER config var in ../.env
+    'GMKF_AUTH_ARC_USER': '',
+    # file source will be used if path specified; leave blank/null to use API
+    #'GMKF_SUBJECT_FILE_PATH': '/Users/schoi/Workspace/PED/PCDC/Projects/_data/gen3_etl/gmkf/nbl-cog-usis.csv',
+    'GMKF_SUBJECT_FILE_PATH': '',
+    'GMKF_SUBMITTER_ID_PREFIX': 'GMKF-30-',
+    'GMKF_STUDY_URL': 'https://fhir.kidsfirstdrc.org/ResearchStudy',
+    'GMKF_SUBJECT_URL': 'https://fhir.kidsfirstdrc.org/ResearchSubject',
+    'GMKF_STUDY_TITLES': [
+        'Discovering the Genetic Basis of Human Neuroblastoma: A Gabriella Miller Kids First Pediatric Research ' +
+            'Program (Kids First) Project'
+    ],
     'EXTERNAL_RESOURCE_ICON_PATH': (
         'https://pcdc-external-resource-files.s3.us-east-1.amazonaws.com/' +
             'Kids_First_Graphic_Horizontal_OL_FINAL.DRC-01-scaled.png'
     ),
-    'RESOURCE_ID_SYSTEM_PARTICIPANTS_URL': 'https://kf-api-dataservice.kidsfirstdrc.org/participants/',
+    'RESOURCE_ID_SYSTEM_PARTICIPANTS_URL': 'https://kf-api-dataservice.kidsfirstdrc.org//participants/',
     'RESOURCE_ID_SYSTEM_UNIQUE_STRING_URN': 'urn:kids-first:unique-string',
-    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participant/',
+    'EXTERNAL_SUBJECT_URL_PREFIX': 'https://portal.kidsfirstdrc.org/participants/',
     'EXTERNAL_RESOURCE_NAME': 'GMKF',
-    'LOCAL_FILE_PATH': _env_vals['LOCAL_FILE_PATH'],
-    'OVERWRITE_EXISTING_EXTERNAL_RESOURCE_FILE': False
+    'USE_SAVED_SOURCE_DATA_FILE': True,
+    'GEN3_SUBJECT_DIR_PATHS': '["/path/to/parent/or/root/dir/containing/gen3/subject/tsv/files/"]',
+    'GEN3_SUBJECT_DIR_IGNORE_PATHS': '["/_"]',
+    'OUTPUT_FILE_NAME': 'gen3_external_reference_gmkf.tsv'
 }
+# override config defaults (or set FHIR API auth; see comments above) using .env config file in parent directory
+_config_file_path: str = sys.argv[1] if len(sys.argv) == 2 else '.env_get_gmkf_data'
+_config_file_vals: dict[str, str] = dotenv.dotenv_values(_config_file_path)
+if not os.path.isfile(_config_file_path):
+    raise FileNotFoundError(f'Config file "{_config_file_path}" not found')
+_CONFIG.update(_config_file_vals)
 
 if not _CONFIG.get('LOG_FILE_APPEND', False) and os.path.exists(_CONFIG['LOG_FILE_PATH']):
     os.remove(_CONFIG['LOG_FILE_PATH'])
@@ -284,7 +567,8 @@ logging.basicConfig(
     ]
 )
 
-logger: logging.Logger = logging.getLogger()
+_logger: logging.Logger = logging.getLogger()
+
 
 if __name__ == '__main__':
     main()

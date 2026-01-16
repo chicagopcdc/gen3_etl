@@ -349,7 +349,7 @@ def adapt_and_load(node_type: str, gen3_sub: any, template_url: str, local_path:
 
             i = index_end
             if i % 1000 == 0:
-                logger.info('%d records processed', i)
+                logger.info('%d of %d records processed', i, len(new_entities))
 
         if i % 1000 != 0:
             logger.info('%d records processed', i)

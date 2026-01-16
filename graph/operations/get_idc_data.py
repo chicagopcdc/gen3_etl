@@ -1,8 +1,9 @@
 """
-Retrieve nationwide tissue bank sample data from D4CG AWS S3 json file created by AWS lambda (maintained by Paul/Luca)
+Retrieve imaging data commons data from D4CG AWS S3 json file created by AWS lambda (maintained by Luca)
 """
 from collections.abc import Iterator
 import csv
+import io
 import json
 import logging
 import os
@@ -29,29 +30,32 @@ logging.getLogger('urllib3').setLevel(logging.ERROR)
 #   aws_secret_access_key = SECRET_ACCESS_KEY
 
 # ~/.aws/config:
-#   [profile nationwide-tissue-bank-staging]
-#   role_arn=arn:aws:iam::<nationwide data manager role id number>:role/nationwide-data-manager
-#   source_profile=portal-staging
-
+#   # default profile must have permission to download source data from S3 bucket
+#   [default]
+#   region = us-east-1
 _CONFIG: dict[str, any] = {
-    'LOG_FILE_PATH': './get_nationwide_tissue_bank_data.log',
+    'LOG_FILE_PATH': './get_idc_data.log',
     'LOG_FILE_APPEND': False,
-    'AWS_PROFILE_NAME': 'nationwide-tissue-bank-staging',
-    'S3_BUCKET_NAME': 'nationwide-tissue-bank-data-staging',
-    'S3_FILE_PREFIX': 'nationwide_data_',
+    'AWS_PROFILE_NAME': 'idc-staging',
+    'S3_BUCKET_NAME': 'idc-index-pull-dev-idc-index-bucket',
+    'S3_FILE_PREFIX': 'idc_index_',
+    'EXTERNAL_RESOURCE_ICON_PATH': (
+        'https://storage.googleapis.com/idc-prod-web-static-files/static/img/NIH_IDC_title.svg'
+    ),
+    'EXTERNAL_RESOURCE_NAME': 'Imaging Data Commons',
     'USE_SAVED_SOURCE_DATA_FILE': True,
     'GEN3_SUBJECT_DIR_PATHS': [
         # Specify in local .env config file to avoid having to hard-code local parent path(s) holding
         # gen3_subject.tsv files containing subject submitter ids to be matched against subject ids
-        # ('NCH_Assigned_Patient_USI' property). Directory paths will be recursively searched. An output file
-        # (e.g. gen3_biospecimen_new.tsv; see 'OUTPUT_FILE_NAME' below) will be created in the same directory
-        # for each gen3_subject.tsv found/specified.
+        # ('PatientID' property). Directory paths will be recursively searched. An output file
+        # (e.g. gen3_biospecimen_new.tsv; see 'OUTPUT_FILE_NAME' below) will be created in the same
+        # directory for each gen3_subject.tsv found/specified.
     ],
     'GEN3_SUBJECT_DIR_IGNORE_PATHS': [
         # Specify full or partial path by which to specify files/directories to be ignored when searching for
         # gen3_subject.tsv files. Implemented using 'contains' (e.g. 'needle' in 'haystack') logic.
     ],
-    'OUTPUT_FILE_NAME': 'gen3_biospecimen_new.tsv'
+    'OUTPUT_FILE_NAME': 'gen3_external_reference_idc.tsv'
 }
 # run command: python script.py .env
 _config_file_path: str = sys.argv[1] if len(sys.argv) == 2 else '.env'
@@ -248,11 +252,28 @@ def get_all_subject_files(root_path: str, skip_paths: list[str] = None, log_skip
     return subject_file_paths
 
 
+def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
+    """ Load and return collection of Gen3 subject records from specified file path (gen3_subject.tsv) """
+    _logger.info('Loading Gen3 subjects from "%s"', gen3_subject_tsv_file_path)
+    fd_subjects: typing.TextIO
+    gen3_subject_tsv_file_path: str
+    subjects: dict[str, dict[str, any]] = {}
+    with open(gen3_subject_tsv_file_path, 'r', encoding='utf-8') as fd_subjects:
+        reader: csv.DictReader = csv.DictReader(fd_subjects, delimiter='\t')
+        record: dict[str, any]
+        for record in reader:
+            if record['*submitter_id'] in subjects:
+                _logger.warning('Subject "%s" loaded more than once')
+            subjects[record['*submitter_id'].strip().upper()] = record
+    _logger.info('Loaded %d Gen3 subject records', len(subjects))
+    return subjects
+
+
 def download_latest_data_file_from_s3(
     aws_profile_name: str,
     s3_bucket_name: str,
     local_save_path: str,
-    data_file_prefix: str = 'nationwide_data_'
+    data_file_prefix: str = 'idc_index_'
 ) -> None:
     """ Download most recent data file from S3 and save locally """
     _logger.info('Downloading latest data file from S3 bucket "%s" to "%s"', s3_bucket_name, local_save_path)
@@ -273,221 +294,150 @@ def download_latest_data_file_from_s3(
     _logger.info('Re-saving formatted data')
     with open(local_save_path, encoding='utf-8', mode='w') as fd_data:
         json.dump(data, fd_data, indent=2)
+    os.rename(local_save_path, local_save_path.replace('.json', '_all.json'))
+
+    # filter for records of interest
+    _logger.info('Filtering for records of interest and sorting')
+    idc_collection_ids: list[str] = json.loads(_CONFIG.get('IDC_COLLECTION_IDS', '[]'))
+    data_filtered: list[dict[str, any]] = [
+        d for d in data if not idc_collection_ids or d['collection_id'] in idc_collection_ids
+    ]
+    data_filtered.sort(
+        key=lambda r: (
+            r['PatientID'],
+            r.get('collection_id', '') or '',
+            r.get('StudyDate', '') or '',
+            r.get('SeriesDate', '') or '',
+            r.get('SeriesNumber', '') or '',
+            r.get('series_aws_url', '') or ''
+        )
+    )
+    with open(local_save_path, encoding='utf-8', mode='w') as fd_data:
+        json.dump(data_filtered, fd_data, indent=2)
 
 
-def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
-    """ Load and return collection of Gen3 subject records from specified file path (gen3_subject.tsv) """
-    _logger.info('Loading Gen3 subjects from "%s"', gen3_subject_tsv_file_path)
-    fd_subjects: typing.TextIO
-    gen3_subject_tsv_file_path: str
-    subjects: dict[str, dict[str, any]] = {}
-    with open(gen3_subject_tsv_file_path, 'r', encoding='utf-8') as fd_subjects:
-        reader: csv.DictReader = csv.DictReader(fd_subjects, delimiter='\t')
-        record: dict[str, any]
-        for record in reader:
-            usi: str = record['*honest_broker_subject_id'].strip().upper()
-            if usi in subjects:
-                _logger.warning('Subject USI "%s" loaded more than once')
-            subjects[usi] = record
-    _logger.info('Loaded %d Gen3 subject records', len(subjects))
-    return subjects
-
-
-def get_biospecimen_source_data(source_file_path: str) -> list[dict[str, any]]:
-    """ Load and return biospecimen records from specified file path """
-    biospecimen_source_data: list[dict[str, any]] = []
+def get_idc_data(source_file_path: str) -> list[dict[str, any]]:
+    """ Load and return IDC patient ids from specified file path """
+    idc_source_data: list[dict[str, any]] = []
     fd_data: typing.TextIO
-    _logger.info('Loading biospecimen data from source file "%s""', source_file_path)
+    _logger.info('Loading IDC data from source file "%s""', source_file_path)
     if not os.path.isfile(source_file_path):
         raise RuntimeError(f'Source file "{source_file_path}" not found')
 
     with open(source_file_path, encoding='utf-8') as fd_data:
-        biospecimen_source_data = json.load(fd_data)
-    if not biospecimen_source_data:
-        raise RuntimeError(f'No records found in biospecimen source file "{source_file_path}"')
+        idc_source_data = json.load(fd_data)
+    if not idc_source_data:
+        raise RuntimeError(f'No records found in IDC source file "{source_file_path}"')
 
-    # sort source records for consistent (idempotent) output for data-equivalent source files
-    _logger.info('%d source records loaded, sorting', len(biospecimen_source_data))
-    biospecimen_source_data.sort(
-        key=lambda r: (
-            r['NCH_Assigned_Patient_USI'],
-            r.get('Protocol_Codes', '') or '',
-            r.get('Biospecimen_Type_Summary', '') or '',
-            r.get('Current_Status', '') or '',
-            r.get('Biospecimen_Media', '') or '',
-            r.get('Collection_Timepoint', '') or '',
-            r.get('Qty_Current', '') or '',
-            r.get('Qty_Current_Value', 0) or 0,
-            r.get('Qty_Current_UoM', '') or '',
-            r.get('Biospecimen_Unit_Type', '') or '',
-        )
+    idc_data_indexed: dict[str, list[dict[str, any]]] = {}
+    idc_record: dict[str, any]
+    for idc_record in idc_source_data:
+        usi: str = idc_record['PatientID'].strip().upper()
+        idc_data_indexed[usi] = idc_data_indexed.get(usi, [])
+        idc_data_indexed[usi].append(idc_record)
+    _logger.info(
+        '%d total records loaded for %d unique subjects',
+        sum(len(v) for v in idc_data_indexed.values()),
+        len(idc_data_indexed)
     )
-    return biospecimen_source_data
+    return idc_data_indexed
 
 
-def get_biospecimen_source_data_indexed(source_file_path: str) -> dict[str, list[dict[str, any]]]:
-    """ Load and return biospecimen records from specified file path indexed by subject usi """
-    biospecimen_source_data: list[dict[str, any]] = get_biospecimen_source_data(source_file_path)
-    _logger.info('Indexing biospecimen source data')
-    if any(not s.get('NCH_Assigned_Patient_USI') for s in biospecimen_source_data):
-        raise RuntimeError('"NCH_Assigned_Patient_USI" blank/null for one or more records in biospecimen source data')
-
-    biospecimen_source_data_indexed: dict[str, list[dict[str, any]]] = {}
-    biospecimen_source_record: dict[str, any]
-    for biospecimen_source_record in biospecimen_source_data:
-        subject_usi: str = biospecimen_source_record['NCH_Assigned_Patient_USI']
-        biospecimen_source_data_indexed[subject_usi] = biospecimen_source_data_indexed.get(subject_usi, [])
-        biospecimen_source_data_indexed[subject_usi].append(biospecimen_source_record)
-    return biospecimen_source_data_indexed
-
-
-def build_gen3_biospecimen_record(
-    subject_submitter_id: str,
-    biospecimen_source_record: dict[str, any],
-    project_id: str,
-    subject_submitter_id_counts: dict[str, int]
-) -> dict[str, any]:
-    """ Create and return biospecimen record from specified source record and subject submitter id counts """
-    qty_val: str = biospecimen_source_record.get('Qty_Current_Value', '')
-    if qty_val not in ('', None) and is_number(qty_val):
-        qty_val_num: float = float(qty_val)
-        if qty_val_num.is_integer():
-            qty_val = str(int(qty_val_num))
-        else:
-            qty_val = round(qty_val_num, 2)
-    else:
-        qty_val = ''
-
-    subject_submitter_id_count: int = subject_submitter_id_counts.get(subject_submitter_id)
-    if not subject_submitter_id_count:
-        raise RuntimeError(f'Subject submitter id count not found for subject "{subject_submitter_id}"')
-    output_submitter_id: str = f'biospecimen_{subject_submitter_id}_{subject_submitter_id_count}'
-    # set sort key e.g. 'biospecimen_COG_PABCDEF_1' => 'biospecimen_COG_PABCDEF_00001' for natural sort ordering
-    sortkey: str = f'biospecimen_{subject_submitter_id}_{subject_submitter_id_count:05}'
-    return {
-        'sortkey': sortkey,
-        'type': 'biospecimen',
-        'project_id': project_id,
-        '*submitter_id': output_submitter_id,
-        '*subjects.submitter_id': subject_submitter_id,
-        'biospecimen_container_type': biospecimen_source_record.get('Biospecimen_Unit_Type', ''),
-        'biospecimen_media': biospecimen_source_record.get('Biospecimen_Media', ''),
-        'biospecimen_type': biospecimen_source_record.get('Biospecimen_Type_Summary', ''),
-        'current_qty_value': qty_val,
-        'current_qty_unit': biospecimen_source_record.get('Qty_Current_UoM', '')
-    }
-
-
-def build_gen3_biospecimen_file(
-    biospecimen_records: dict[str, list[dict[str, any]]],
-    gen3_subjects: dict[str, dict[str , any]],
+def build_external_resource_file(
+    idc_data: list[dict[str, any]],
+    gen3_subjects: dict[str, dict[str, any]],
     output_file_path: str
 ) -> None:
-    """ Create TSV file for load into Gen3 portal from specified biospecimen and Gen3 subject records """
-    _logger.info('Building biospecimen output file')
+    """ Create TSV file for load into Gen3 portal from specified IDC patient and Gen3 subject records """
+    _logger.info('Building external resource file')
 
-    project_ids: set[str] = {v['project_id'] for v in gen3_subjects.values()}
-    if len(project_ids) != 1:
-        raise RuntimeError(f'Number of subject project_id values != 1: {project_ids}')
+    external_references: list[dict[str, any]] = []
 
-    project_id: str = project_ids.pop()
-    subject_submitter_id_counts: dict[str, int] = {v['*submitter_id']:1 for v in gen3_subjects.values()}
-    subjects_found: set[str] = set()
-    subjects_not_found: set[str] = set()
-
-    num_subjects: int = len(gen3_subjects)
-    num_subjects_processed: int = 0
-
-    num_depleted_records: int = 0
-
-    output_records: list[dict[str, any]] = []
-
-    subject_usi: str
-    subject_record: dict[str, any]
-    for subject_usi, subject_record in gen3_subjects.items():
-        num_subjects_processed += 1
-        if num_subjects_processed % 1000 == 0:
+    gen3_subjects_processed: int = 0
+    gen3_subject_submitter_id: str
+    gen3_subject: dict[str, any]
+    for gen3_subject_submitter_id, gen3_subject in gen3_subjects.items():
+        gen3_subjects_processed += 1
+        if gen3_subjects_processed % 1000 == 0:
             _logger.info(
-                '%d of %d subjects processed, %d output records created for %d subjects',
-                num_subjects_processed,
-                num_subjects,
-                len(output_records),
-                len(subjects_found)
+                '%d/%d subjects processed, processing submitter_id "%s")',
+                gen3_subjects_processed,
+                len(gen3_subjects),
+                gen3_subject_submitter_id
             )
 
-        gen3_subject_id: str = subject_record['*submitter_id']
-
-        # find source records
-        subject_biospecimen_records: list[dict[str, any]] = biospecimen_records.get(subject_usi, [])
-        if not subject_biospecimen_records:
-            # _logger.warning(
-            #     'No source biospecimen data found for Gen3 subject "%s", biospecimen record(s) not populated',
-            #     gen3_subject_id
-            # )
-            subjects_not_found.add(gen3_subject_id)
+        # ex: COG_PACLAX => data contributor = COG, USI = PACLAX
+        gen3_subject_submitter_id_parts: list[str] =  gen3_subject_submitter_id.split('_')
+        if len(gen3_subject_submitter_id_parts) < 2:
+            _logger.warning('Unexpected/malformed submitter_id: "%s"', gen3_subject_submitter_id)
             continue
-        subjects_found.add(gen3_subject_id)
 
-        subject_biospecimen_record: dict[str, any]
-        for subject_biospecimen_record in subject_biospecimen_records:
-            # verify that source record is not depleted
-            if subject_biospecimen_record.get('Current_Status', '').upper() == 'DEPLETED':
-                num_depleted_records += 1
-                continue
+        usi: str = gen3_subject['*honest_broker_subject_id'].strip().upper()
+        if usi not in idc_data:
+            continue
 
-            output_records.append(
-                build_gen3_biospecimen_record(
-                    gen3_subject_id,
-                    subject_biospecimen_record,
-                    project_id,
-                    subject_submitter_id_counts
-                )
+        external_reference_index: int
+        idc_record: dict[str, any]
+        for external_reference_index, idc_record in enumerate(idc_data[usi], 1):
+            external_reference_submitter_id: str = (
+                f"external_reference_idc_{gen3_subject_submitter_id}_{external_reference_index}"
             )
-            subject_submitter_id_counts[gen3_subject_id] += 1
 
-    if num_subjects_processed % 1000 != 0:
-        _logger.info(
-            '%d of %d subjects processed, %d output records created for %d subjects',
-            num_subjects_processed,
-            num_subjects,
-            len(output_records),
-            len(subjects_found)
-        )
-    if not output_records:
-        _logger.warning("No biospecimen output records to write")
+            external_obj: dict[str, any] = {}
+            external_obj['type'] = 'external_reference'
+            external_obj['project_id'] = gen3_subject['project_id']
+            external_obj['*submitter_id'] = external_reference_submitter_id
+            external_obj['*subjects.submitter_id'] = gen3_subject_submitter_id
+            external_obj['external_resource_icon_path'] = _CONFIG['EXTERNAL_RESOURCE_ICON_PATH']
+            external_obj['external_resource_id'] = 3
+            external_obj['external_resource_name'] = _CONFIG['EXTERNAL_RESOURCE_NAME']
+            external_obj['external_subject_url'] = idc_record['series_aws_url']
+            external_obj['external_subject_id'] = usi
+            external_obj['external_subject_submitter_id'] = usi
+            external_obj['external_links'] = (
+                external_obj['external_resource_name'] + '|' +
+                external_obj['external_resource_icon_path'] + '|' +
+                external_obj['external_subject_url']
+            )
+
+            external_references.append(external_obj)
+
+    if not external_references:
+        _logger.warning('No external references loaded, output file not created')
         return
 
-    # sort records and remove sort key from final output records
-    output_records.sort(key=lambda r: r['sortkey'])
-    for output_record in output_records:
-        output_record.pop('sortkey')
-
-    # save biospecimen records to specified output path
-    fd_tsv: typing.TextIO
-    with open(output_file_path, mode='w', encoding='utf-8') as fd_tsv:
-        writer: csv.DictWriter = csv.DictWriter(fd_tsv, fieldnames=output_records[0].keys(), delimiter='\t')
-        writer.writeheader()
-        output_record: dict[str, any]
-        for output_record in output_records:
-            writer.writerow(output_record)
-    _logger.info('Saved %d output records to "%s"', len(output_records), output_file_path)
     _logger.info(
-        '%d distinct subjects processed, %d subjects found in biospecimen source data, %d not found',
-        len(subjects_found) + len(subjects_not_found),
-        len(subjects_found),
-        len(subjects_not_found)
+        '%d subjects processed, %d external references loaded, creating tsv output file',
+        gen3_subjects_processed, len(external_references)
     )
-    if num_depleted_records:
-        _logger.info('%d source record(s) matched subjects but excluded due to "DEPLETED" status')
+
+    fp: io.TextIOWrapper
+    with open(output_file_path, mode='w', encoding='utf-8') as fp:
+        fieldnames: list[str] = [
+            'type',
+            'project_id',
+            '*submitter_id',
+            '*subjects.submitter_id',
+            'external_resource_icon_path',
+            'external_resource_id',
+            'external_resource_name',
+            'external_subject_id',
+            'external_subject_submitter_id',
+            'external_subject_url',
+            'external_links'
+        ]
+        writer: csv.DictWriter = csv.DictWriter(fp, fieldnames=fieldnames, dialect='excel-tab')
+        writer.writeheader()
+        writer.writerows(external_references)
 
 
 def main():
     """
     Standalone entry point
     """
-    local_data_file_path: str = './nationwide_tissue_bank_data.json'
+    local_data_file_path: str = './idc_index_data.json'
     if not _CONFIG.get('USE_SAVED_SOURCE_DATA_FILE', True) or not os.path.exists(local_data_file_path):
-        local_data_file_path_last: str = './nationwide_tissue_bank_data_last.json'
+        local_data_file_path_last: str = './idc_index_data_last.json'
         if os.path.exists(local_data_file_path):
             if os.path.exists(local_data_file_path_last):
                 os.remove(local_data_file_path_last)
@@ -504,9 +454,11 @@ def main():
     if not os.path.exists(local_data_file_path):
         raise RuntimeError(f'Source data file "{local_data_file_path}" not found, verify that download was successful')
 
-    biospecimen_data: dict[str, list[dict[str, any]]] = get_biospecimen_source_data_indexed(local_data_file_path)
+    idc_data: dict[str, list[dict[str, any]]] = get_idc_data(local_data_file_path)
+    if not idc_data:
+        raise RuntimeError('No IDC data found')
 
-    output_file_name: str = _CONFIG.get('OUTPUT_FILE_NAME', 'gen3_biospecimen_new.tsv')
+    output_file_name: str = _CONFIG.get('OUTPUT_FILE_NAME', 'gen3_external_reference_idc.tsv')
     gen3_subject_dir_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_PATHS', '[]'))
     gen3_subject_dir_ignore_paths: list[str] = json.loads(_CONFIG.get('GEN3_SUBJECT_DIR_IGNORE_PATHS', '[]'))
 
@@ -527,21 +479,22 @@ def main():
         gen3_subjects: dict[str, dict[str, any]] = get_gen3_subjects(gen3_subject_file_path)
         output_file_path = os.path.join(Path(gen3_subject_file_path).parent.absolute(), output_file_name)
         _logger.info(
-            '%d/%d: Building Gen3 biospecimen TSV file for %d subjects in "%s" and saving to "%s"',
+            '%d/%d: Building Gen3 external reference TSV file for %d subjects in "%s" and saving to "%s"',
             subject_file_processing_index,
             len(gen3_subject_file_paths),
             len(gen3_subjects),
             gen3_subject_file_path,
             output_file_path
         )
-        build_gen3_biospecimen_file(biospecimen_data, gen3_subjects, output_file_path)
+
+        build_external_resource_file(idc_data, gen3_subjects, output_file_path)
         if not os.path.exists(output_file_path):
             _logger.warning('Output file "%s" not found, verify output file build was successful', output_file_path)
         else:
             output_files_created.append(output_file_path)
         subject_file_processing_index += 1
 
-    _logger.info('%d biospecimen output file(s) created:', len(output_files_created))
+    _logger.info('%d external reference output file(s) created:', len(output_files_created))
     for output_file_path in output_files_created:
         _logger.info(output_file_path)
 

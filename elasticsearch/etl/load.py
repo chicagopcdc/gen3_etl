@@ -130,7 +130,7 @@ def try_bulk(
         tries += 1
         try:
             helpers.bulk(es_instance, bulk_actions, request_timeout=es_timeout)
-        except (exceptions.RequestError, exceptions.ConnectionError) as err:
+        except (exceptions.TransportError, exceptions.RequestError, exceptions.ConnectionError) as err:
             if tries >= es_bulk_max_tries:
                 logger.error('Error performing bulk operation, max tries (%d) attempted', es_bulk_max_tries)
                 raise
@@ -187,7 +187,7 @@ def load_es_data_index(
         if len(bulk_actions) % es_bulk_batch_size == 0:
             try_bulk(es_instance, bulk_actions, es_bulk_max_tries, es_bulk_retry_delay, es_timeout)
             bulk_actions.clear()
-            logger.info('Loaded %d records into index "%s"', i, index_name)
+            logger.info('Loaded %d of %d records into index "%s"', i, len(docs), index_name)
 
     if bulk_actions:
         try_bulk(es_instance, bulk_actions, es_bulk_max_tries, es_bulk_retry_delay)

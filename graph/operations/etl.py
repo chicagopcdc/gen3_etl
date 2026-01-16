@@ -13,7 +13,6 @@ from gen3.submission import Gen3Submission
 
 from load import adapt_and_load, is_valid_node_type
 from update_data import get_differences, load_differences
-from get_target_data import build_external_resource_file
 
 
 # set up logging
@@ -157,5 +156,3 @@ if len(sys.argv) > 1:
         print('Now please review the diff file and look for wrong values or wrong mappings.')
     elif sys.argv[1] == 'update_data':
         load_diff_and_update()
-    elif sys.argv[1] == 'get_target_data':
-        build_external_resource_file(local_path, template_url)
