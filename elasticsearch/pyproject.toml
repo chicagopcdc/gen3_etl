@@ -4,7 +4,7 @@ version = "0.1.9"
 description = "PCDC Gen3 ETL Scripts"
 authors = ["PCDC UChicago <lgraglia@uchicago.edu>"]
 readme = "README.md"
-
+packages = [{ include = "etl" }]
 
 [tool.poetry.dependencies]
 python = ">3.8,<=3.10"
