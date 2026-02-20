@@ -130,6 +130,7 @@ def try_bulk(
         tries += 1
         try:
             helpers.bulk(es_instance, bulk_actions, request_timeout=es_timeout)
+            break
         except (exceptions.TransportError, exceptions.RequestError, exceptions.ConnectionError) as err:
             if tries >= es_bulk_max_tries:
                 logger.error('Error performing bulk operation, max tries (%d) attempted', es_bulk_max_tries)

@@ -368,8 +368,12 @@ def sort_and_flatten_survival_characteristics(survival_characteristics: list[dic
     subject: dict[str, any] = None
     subject_id: str
     for survival_characteristic in survival_characteristics:
-        if 'type' not in survival_characteristic or survival_characteristic['type'] != NODE_TYPE_SURVIVAL_CHARACTERISTIC:
-            invalid_type: str = survival_characteristic['type'] if type in survival_characteristic else ''
+        if (
+            'type' not in survival_characteristic
+            or
+            survival_characteristic['type'] != NODE_TYPE_SURVIVAL_CHARACTERISTIC
+        ):
+            invalid_type: str = survival_characteristic.get('type', '')
             log_msg = f'Error flattening survival_characteristic records: unexpected type \'{invalid_type}\''
             logger.fatal(log_msg)
             logger.fatal(survival_characteristic)
