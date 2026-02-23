@@ -83,6 +83,7 @@ def load_es_array_config_index(es_instance: Elasticsearch, index_name: str) -> N
             'disease_characteristics',
             'external_references',
             'function_tests',
+            'growing_teratoma_syndromes',
             'histologies',
             'imagings',
             'labs',
