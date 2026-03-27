@@ -181,6 +181,7 @@ class PortalRecordRemover:
 
         if 'data' not in results:
             self._logger.warning('\'data\' not returned in results')
+            self._logger.warning(results)
             return []
         self._logger.info(f'{len(results["data"])} records retrieved')
 
@@ -326,7 +327,7 @@ def export_records(record_remover: PortalRecordRemover, logger: PortalRecordRemo
             )
         )
     if exported_records:
-        logger.info('Saving %d exported records to export.txt', len(exported_records))
+        logger.info(f'Saving {len(exported_records)} exported records to export.txt')
     else:
         logger.warning('No exported records to be saved')
         return
