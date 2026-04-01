@@ -13,9 +13,7 @@ from gen3.auth import Gen3Auth
 from gen3.submission import Gen3Submission
 from transform import generate_subject_json
 from transform import generate_es_index_mapping
-from load import load_es_data
-from load import load_es_array_config
-from load import switch_alias
+from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX
 
 
 # set up logging
@@ -198,12 +196,17 @@ if len(sys.argv) > 1:
             logger.warning("Nothing to do, specify 'LOCAL_ES_FILE_PATH' to load")
     elif sys.argv[1] == 'a':
         # re-assign pcdc and pcdc-array-config aliases from current/old to new index
-        if len(sys.argv) == 4 and sys.argv[2] and sys.argv[3]:
+        if len(sys.argv) == 5 and sys.argv[2] and sys.argv[3] and sys.argv[4]:
+            alias: str = sys.argv[2]
+            old_index: str = sys.argv[3]
+            new_index: str = sys.argv[4]
             logger.info(
-                "Switching Elasticsearch aliases for 'pcdc' and 'pcdc-array-config' from '%s' to '%s'",
-                sys.argv[2],
-                sys.argv[3]
+                "Switching Elasticsearch aliases for '%s' and '%s' from '%s' to '%s'",
+                alias,
+                f'{alias}{ARRAY_CONFIG_ALIAS_SUFFIX}',
+                old_index,
+                new_index
             )
-            switch_alias(es_port, sys.argv[2], sys.argv[3])
+            switch_alias(es_port, alias, old_index, new_index)
         else:
-            logger.fatal('Usage: python etl.py a [old_index] [new_index]')
+            logger.fatal('Usage: python etl.py a [alias] [old_index] [new_index]')
