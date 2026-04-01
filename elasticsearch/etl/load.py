@@ -14,8 +14,7 @@ ES_BULK_MAX_TRIES_DEFAULT: int = 3
 ES_BULK_RETRY_DELAY_DEFAULT: int = 60
 ES_TIMEOUT_DEFAULT: int = 60
 ES_INDEX_MAPPING_TOTAL_FIELDS_LIMIT: int = 2000
-PCDC_ALIAS: str = 'pcdc'
-PCDC_ARRAY_CONFIG_ALIAS: str = 'pcdc-array-config'
+ARRAY_CONFIG_ALIAS_SUFFIX: str = '-array-config'
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -33,25 +32,29 @@ def get_es(es_port: int, es_host: str = 'localhost', es_timeout: int = ES_TIMEOU
     return Elasticsearch([{'host': es_host, 'port': int(es_port), 'schema': 'http'}], timeout=es_timeout)
 
 
-def switch_alias(es_port: int, old_index: str, new_index: str) -> None:
+def switch_alias(es_port: int, alias: str, old_index: str, new_index: str) -> None:
     """ Switch Elasticsearch alias for specified instance and index names """
     es_instance: Elasticsearch = get_es(es_port)
 
-    logger.info('Adding new alias "%s" for index "%s', PCDC_ALIAS, new_index)
-    es_instance.indices.put_alias(index=new_index, name=PCDC_ALIAS)
-    logger.info('Adding new alias "%s" for index "%s', PCDC_ARRAY_CONFIG_ALIAS, new_index + '-array-config')
-    es_instance.indices.put_alias(index=new_index + '-array-config', name=PCDC_ARRAY_CONFIG_ALIAS)
+    alias_array_config: str = f'{alias}{ARRAY_CONFIG_ALIAS_SUFFIX}'
+    old_index_array_config: str = f'{old_index}{ARRAY_CONFIG_ALIAS_SUFFIX}'
+    new_index_array_config: str = f'{new_index}{ARRAY_CONFIG_ALIAS_SUFFIX}'
+
+    logger.info('Adding new alias "%s" for index "%s', alias, new_index)
+    es_instance.indices.put_alias(index=new_index, name=alias)
+    logger.info('Adding new alias "%s" for index "%s', alias_array_config, new_index_array_config)
+    es_instance.indices.put_alias(index=new_index_array_config, name=alias_array_config)
 
     try:
-        logger.info('Deleting old alias "%s" for index "%s', PCDC_ALIAS, old_index)
-        es_instance.indices.delete_alias(index=old_index, name=PCDC_ALIAS)
+        logger.info('Deleting old alias "%s" for index "%s', alias, old_index)
+        es_instance.indices.delete_alias(index=old_index, name=alias)
     except exceptions.NotFoundError as nferr:
         logger.error('Error deleting old alias (not found):')
         logger.error(nferr)
 
     try:
-        logger.info('Deleting old alias "%s" for index "%s', PCDC_ARRAY_CONFIG_ALIAS, old_index + '-array-config')
-        es_instance.indices.delete_alias(index=old_index + '-array-config', name=PCDC_ARRAY_CONFIG_ALIAS)
+        logger.info('Deleting old alias "%s" for index "%s', alias_array_config, old_index_array_config)
+        es_instance.indices.delete_alias(index=old_index_array_config, name=alias_array_config)
     except exceptions.NotFoundError as nferr:
         logger.error('Error deleting old alias:')
         logger.error(nferr)
