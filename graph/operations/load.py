@@ -294,7 +294,7 @@ def adapt_and_load(node_type: str, gen3_sub: any, template_url: str, local_path:
 
         batch_size: int = max(int(os.environ.get('BATCH_SIZE', '100')), 1)
         i: int = 0
-        max_submit_attempts: int = max(int(os.environ.get('MAX_SUBMIT_ATTEMPTS', '3')), 1)
+        max_submit_attempts: int = max(int(os.environ.get('MAX_SUBMIT_ATTEMPTS', '5')), 1)
         failed_submit_attempts = 0
         while i < len(new_entities):
             index_end: int = min(i + batch_size, len(new_entities))
@@ -328,12 +328,10 @@ def adapt_and_load(node_type: str, gen3_sub: any, template_url: str, local_path:
                             logger.error('Exception response content: %s', exception.response.content)
 
                         if hasattr(exception.response, 'status_code'):
-                            if exception.response.status_code == 400:
-                                # validation error likely
-                                print('fix tsv file data')
-                            if exception.response.status_code == 502:
-                                # unrecoverable service error
-                                raise
+                            print(f'Error response code: {exception.response.status_code}')
+
+                        if hasattr(exception.response, 'text'):
+                            print(f'Error response text: {exception.response.text}')
 
                     if response:
                         logger.info('Remote response:')
@@ -359,4 +357,4 @@ def adapt_and_load(node_type: str, gen3_sub: any, template_url: str, local_path:
     if not failed_submit_attempts:
         logger.info(msg)
     else:
-        logger.warning(msg)
+        logger.error(msg)
