@@ -53,7 +53,7 @@ index_name: str = os.environ.get('INDEX_NAME', 'pcdc_20220808')
 
 # Elasticsearch parameters for bulk/batch api
 es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 10))
-es_bulk_max_tries: int = int(os.environ.get('ES_BULK_MAX_TRIES', 3))
+es_bulk_max_tries: int = int(os.environ.get('ES_BULK_MAX_TRIES', 5))
 es_bulk_retry_delay: int = int(os.environ.get('ES_BULK_RETRY_DELAY', 60))
 es_timeout: int = int(os.environ.get('ES_TIMEOUT', 60))
 
@@ -79,25 +79,34 @@ def extract() -> dict[str, any]:
                 tries += 1
                 logger.info('Extracting %s %s...', node_type, f'(attempt #{tries}) ' if tries > 1 else '')
                 try:
-                    node_data[project][node_type] = sub.export_node(
+                    export_results: any = sub.export_node(
                         program_name,
                         project_code,
                         node_type,
                         'json'
-                    )['data']
+                    )
+                    if 'error' in export_results and export_results['error']:
+                        raise RuntimeError(
+                            export_results['error'] if hasattr(export_results, 'error') else export_results
+                        )
+                    if 'data' not in export_results:
+                        logger.error('No data exported:')
+                        logger.error(export_results)
+                        raise RuntimeError('No data exported')
+                    node_data[project][node_type] = export_results['data']
                     break
                 except Exception as err: # pylint: disable=broad-exception-caught
                     if tries >= es_bulk_max_tries:
                         logger.critical('Unable to extract %s, max tries (%d) attempted', node_type, es_bulk_max_tries)
                         raise
-                    logger.warning(
+                    logger.error(err)
+                    logger.error(
                         'Error extracting %s (attempt #%d), retrying after %d seconds:',
                         node_type,
                         tries,
-                        es_bulk_retry_delay
+                        es_bulk_retry_delay * tries
                     )
-                    logger.warning(err)
-                    time.sleep(es_bulk_retry_delay)
+                    time.sleep(es_bulk_retry_delay * tries)
 
     logger.info('Extract successful')
     return node_data

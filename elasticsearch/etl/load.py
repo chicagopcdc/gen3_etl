@@ -117,7 +117,7 @@ def load_es_array_config_index(es_instance: Elasticsearch, index_name: str) -> N
     request_body.update(mapping)
     index: str = f'{index_name}-array-config'
     es_instance.indices.create(index=index, body=request_body, include_type_name=False)
-    es_instance.index(index, id=PCDC_ALIAS, body=doc)
+    es_instance.index(index, id=index, body=doc)
     logger.info('Loaded ES array config index')
 
 
