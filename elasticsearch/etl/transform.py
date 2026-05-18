@@ -197,6 +197,13 @@ def load_field_type_lists() -> dict[str, any]:
         logger.exception(err)
         raise
 
+def is_int(val: any) -> bool:
+    """ Determine if specified value is integer """
+    try:
+        num_val: float = float(val)
+        return num_val.is_integer()
+    except ValueError:
+        return False
 
 def to_num(val: any) -> any:
     """ Convert specified input value to number while trying to determine whether to return float or int """
@@ -538,7 +545,7 @@ def can_populate_node_record_field(
     return True
 
 
-def populate_node_record(
+def populate_node_record( # pylint: disable=too-many-positional-arguments
     node_type: str,
     source_record: dict[str, any],
     new_subjects: dict[str, dict[str, any]] = None,
@@ -676,16 +683,21 @@ def create_subject_record(
                 '/subjects/' + subject['subject_submitter_id']
             )
 
-    ### TEMPORARY PATCH TO INCLUDE YEAR_AT_DISEASE_PHASE
+    # set year at disease phase from initial diagnosis timing record if available
     if subject['_subject_id'] in source_timings:
-        # set subject year_at_disease_phase field with value from last subject timing record having valid value
-        subject_timings: list[dict[str, any]] = list(source_timings[subject['_subject_id']])
-        subject_timings_yadp: list[dict[str, any]] = [
-            t for t in subject_timings if 'year_at_disease_phase' in t and t['year_at_disease_phase']
-        ]
-        if subject_timings_yadp:
-            subject['year_at_disease_phase'] = subject_timings_yadp[-1]['year_at_disease_phase']
-    ### END PATCH
+        subject_init_dx_yadp: str = min(
+            (
+                t['year_at_disease_phase'] for t in list(source_timings[subject['_subject_id']]) if
+                    t.get('disease_phase', '') == 'Initial Diagnosis'
+                    and
+                    is_int(t.get('year_at_disease_phase', ''))
+                    and
+                    to_num(t['year_at_disease_phase']) > 1900
+            ),
+            default=0
+        )
+        if subject_init_dx_yadp:
+            subject['year_at_disease_phase'] = subject_init_dx_yadp
 
     return subject
 
