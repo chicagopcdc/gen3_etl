@@ -478,7 +478,7 @@ def build_gen3_biospecimen_file(
         len(subjects_not_found)
     )
     if num_depleted_records:
-        _logger.info('%d source record(s) matched subjects but excluded due to "DEPLETED" status')
+        _logger.info('%d source record(s) matched subjects but excluded due to "DEPLETED" status', num_depleted_records)
 
 
 def main():
