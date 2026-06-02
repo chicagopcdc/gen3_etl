@@ -1,6 +1,4 @@
-"""
-Retrieve external data from GMKF
-"""
+""" Retrieve external data from GMKF """
 import ast
 import csv
 import io
@@ -82,7 +80,7 @@ def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
         record: dict[str, any]
         for record in reader:
             if record['*submitter_id'] in subjects:
-                _logger.warning('Subject "%s" loaded more than once')
+                _logger.warning('Subject "%s" loaded more than once', record['*submitter_id'])
             subjects[record['*submitter_id']] = record
     _logger.info('Loaded %d Gen3 subject records', len(subjects))
     return subjects

@@ -287,7 +287,7 @@ def get_gen3_subjects(gen3_subject_tsv_file_path: str) -> dict[dict[str, any]]:
         for record in reader:
             usi: str = record['*honest_broker_subject_id'].strip().upper()
             if usi in subjects:
-                _logger.warning('Subject USI "%s" loaded more than once')
+                _logger.warning('Subject USI "%s" loaded more than once', usi)
             subjects[usi] = record
     _logger.info('Loaded %d Gen3 subject records', len(subjects))
     return subjects
