@@ -3,6 +3,33 @@ This repo contains the scripts that call the Gen3 API to import, export, and mai
 
 ## elasticsearch
 Scripts to load data into the Gen3 ES index
+### configuration
+The ETL is controlled by environment variables. Key variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROJECT_LIST` | `["pcdc-20220808"]` | JSON array of projects to process. Set to a single-element array to run for one project only. |
+| `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors. |
+| `ES_PORT` | `9200` | Elasticsearch port. |
+| `ES_TIMEOUT` | `60` | Timeout in seconds for ES bulk write requests. |
+| `ES_BULK_MAX_TRIES` | `5` | Max retry attempts per bulk batch. |
+| `ES_BULK_RETRY_DELAY` | `60` | Base delay in seconds between retries (multiplied by attempt number). |
+| `SPARK_MASTER` | `local[*]` | Spark master URL. `local[*]` uses all local cores; set to the EMR master URL when running on a cluster. |
+| `CREDENTIALS` | `../credentials.json` | Path to the Gen3 API credentials file. |
+
+To run for a single project, set `PROJECT_LIST` to a one-element JSON array:
+```bash
+export PROJECT_LIST='["pcdc-20220808"]'
+python3 etl.py
+```
+
+Or inline for a one-off run:
+```bash
+PROJECT_LIST='["pcdc-20220808"]' python3 etl.py
+```
+
+When submitting as an EMR step, add it to the env-var block in the `Args` string (see step example below).
+
 ### load via AWS EMR
 Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smoke/ in the playground aws account has been used for testing):
     - credentials.json (API key)
@@ -49,7 +76,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; aws s3 cp s3://<bucket>/smoke/credentials.json ./credentials.json && aws s3 cp s3://<bucket>/smoke/etl.py ./etl.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://<bucket>/manual-logs/output.txt"
+      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20220808\"]'; aws s3 cp s3://<bucket>/smoke/credentials.json ./credentials.json && aws s3 cp s3://<bucket>/smoke/etl.py ./etl.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://<bucket>/manual-logs/output.txt"
     ]
   }
 ]
