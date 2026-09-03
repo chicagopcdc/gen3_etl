@@ -105,7 +105,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20220808\"]'; export ES_HOST='<opensearch-endpoint>'; export MAPPING_FILE='./nested_mapping.json'; aws s3 cp s3://<bucket>/smoke/credentials.json ./credentials.json && aws s3 cp s3://<bucket>/smoke/etl.py ./etl.py && aws s3 cp s3://<bucket>/smoke/transform.py ./transform.py && aws s3 cp s3://<bucket>/smoke/load.py ./load.py && aws s3 cp s3://<bucket>/smoke/spark_utils.py ./spark_utils.py && aws s3 cp s3://<bucket>/smoke/nested_mapping.json ./nested_mapping.json && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://<bucket>/manual-logs/output.txt"
+      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export MAPPING_FILE='./nested_mapping.json'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
     ]
   }
 ]
