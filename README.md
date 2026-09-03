@@ -57,10 +57,19 @@ Generate an elastic IP for the master node or deploy EMR in the same VPC as the 
 - `ALLOC_ID=$(aws ec2 allocate-address --domain vpc --profile pcdc_play --region us-east-2 --query AllocationId --output text)`
 - `echo "$ALLOC_ID"`
 
+#### VPC / networking considerations
+The cluster is pinned to a VPC by passing a `SubnetId` in `--ec2-attributes` (the subnet implicitly determines the VPC). A few things to verify before creating the cluster:
+
+- **Subnet type**: a private subnet with a NAT gateway is recommended. The bootstrap needs outbound internet access to run `pip install`; the extract step needs to reach the Gen3 API. Without a NAT (or internet gateway for public subnets) both will fail.
+- **DNS**: the VPC must have *DNS resolution* and *DNS hostnames* both enabled (VPC → Actions → Edit DNS settings). EMR requires this.
+- **OpenSearch reachability**: since Spark executors write to OpenSearch directly, every node (master + core/task) must be able to reach the OpenSearch endpoint on port 443. If OpenSearch is in the same VPC, add an inbound rule to its security group allowing port 443 from the EMR-managed security groups. If it is in a different VPC, set up VPC peering or a Transit Gateway with matching route table entries.
+- **S3 access**: add a [VPC gateway endpoint for S3](https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-s3.html) to the subnet's route table. It is free, keeps S3 traffic off the internet, and avoids NAT data-transfer costs for bootstrap files, logs, and step files.
+- **Elastic IP**: still required even when EMR is in the same VPC as OpenSearch, because the Gen3 API is behind a firewall whose allowlist must include the master node's outbound IP.
+
 Start the cluster:
 - `aws ec2 create-key-pair --key-name emr-cluster-dev --profile pcdc_play --region us-east-2 --query 'KeyMaterial' --output text > emr-cluster-dev.pem`
 - `chmod 400 emr-cluster-dev.pem`
-- `CLUSTER_ID=$(aws emr create-cluster --name "gen3-etl-test" --release-label emr-7.13.0 --applications Name=Spark --instance-type m5.xlarge --instance-count 1 --use-default-roles --ec2-attributes KeyName=emr-cluster-dev --bootstrap-actions Path=s3://gen3-etl-smoke-test-973342646972/smoke/bootstrap.sh --log-uri s3://gen3-etl-smoke-test-973342646972/logs/ --profile pcdc_play --region us-east-2 --query ClusterId --output text)`
+- `CLUSTER_ID=$(aws emr create-cluster --name "gen3-etl-test" --release-label emr-7.13.0 --applications Name=Spark --instance-type m5.xlarge --instance-count 1 --use-default-roles --ec2-attributes KeyName=emr-cluster-dev,SubnetId=<subnet-id> --bootstrap-actions Path=s3://gen3-etl-smoke-test-973342646972/smoke/bootstrap.sh --log-uri s3://gen3-etl-smoke-test-973342646972/logs/ --profile pcdc_play --region us-east-2 --query ClusterId --output text)`
 - `echo "$CLUSTER_ID"`
 - `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --query 'Cluster.Status.State' --output text`
 - `MASTER_INSTANCE_ID=$(aws emr list-instances --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --instance-group-types MASTER --query 'Instances[0].Ec2InstanceId' --output text)`
