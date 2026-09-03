@@ -6,14 +6,12 @@ import sys
 import json
 import logging
 import os
-import time
 
 from dotenv import load_dotenv
-from gen3.auth import Gen3Auth
-from gen3.submission import Gen3Submission
+from spark_utils import get_spark_session
 from transform import generate_subject_json
 from transform import generate_es_index_mapping
-from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX
+from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX, mapping_file
 
 
 # set up logging
@@ -45,24 +43,86 @@ credentials: str = os.environ.get('CREDENTIALS', '../credentials.json')
 # path to local file where json data will be imported/exported
 local_es_file_path: str = os.environ.get('LOCAL_ES_FILE_PATH', '../files/es_data.json')
 
+# Elasticsearch host (must be reachable from every Spark executor, not just the driver)
+es_host: str = os.environ.get('ES_HOST', 'localhost')
+
 # Elasticsearch port
 es_port: int = int(os.environ.get('ES_PORT', 9200))
+
+# Elasticsearch scheme: 'http' for local/self-managed, 'https' for AWS OpenSearch
+es_scheme: str = os.environ.get('ES_SCHEME', 'http')
 
 # Elasticsearch index name
 index_name: str = os.environ.get('INDEX_NAME', 'pcdc_20220808')
 
 # Elasticsearch parameters for bulk/batch api
-es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 10))
+es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 1000))
 es_bulk_max_tries: int = int(os.environ.get('ES_BULK_MAX_TRIES', 5))
 es_bulk_retry_delay: int = int(os.environ.get('ES_BULK_RETRY_DELAY', 60))
 es_timeout: int = int(os.environ.get('ES_TIMEOUT', 60))
 
-def extract() -> dict[str, any]:
-    """ Extract gen3 data (graphdb) to json data dictionary """
-    auth: Gen3Auth = Gen3Auth(base_url, refresh_file=credentials)
-    sub: Gen3Submission = Gen3Submission(base_url, auth)
+def _extract_node(item: dict[str, any]) -> dict[str, any]:
+    """
+    Extract a single (project, node_type) pair. Runs as a Spark task, possibly on a
+    remote executor, so it is self-contained: it builds its own Gen3Auth/Gen3Submission
+    from the broadcasted refresh token rather than reusing a shared instance, since
+    Gen3Auth mutates its in-memory access token on refresh with no locking and is not
+    safe to share across concurrent tasks. It also does its own logging setup rather
+    than referencing the driver's module-level logger, which may not be picklable/
+    available on the executor.
+    """
+    import logging
+    import time
+    from gen3.auth import Gen3Auth
+    from gen3.submission import Gen3Submission
+    task_logger: logging.Logger = logging.getLogger(__name__)
 
-    node_data: dict[str, any] = {}
+    project: str = item['project']
+    program_name: str = item['program_name']
+    project_code: str = item['project_code']
+    node_type: str = item['node_type']
+
+    auth: Gen3Auth = Gen3Auth(item['base_url'], refresh_token=item['refresh_token'])
+    sub: Gen3Submission = Gen3Submission(item['base_url'], auth)
+
+    tries: int = 0
+    while tries < max(item['max_tries'], 1):
+        tries += 1
+        task_logger.info('Extracting %s %s %s...', project, node_type, f'(attempt #{tries}) ' if tries > 1 else '')
+        try:
+            export_results: any = sub.export_node(
+                program_name,
+                project_code,
+                node_type,
+                'json'
+            )
+            if 'error' in export_results and export_results['error']:
+                raise RuntimeError(export_results['error'])
+            if 'data' not in export_results:
+                task_logger.error('No data exported:')
+                task_logger.error(export_results)
+                raise RuntimeError('No data exported')
+            return {'project': project, 'node_type': node_type, 'data': export_results['data']}
+        except Exception as err: # pylint: disable=broad-exception-caught
+            if tries >= item['max_tries']:
+                task_logger.critical('Unable to extract %s, max tries (%d) attempted', node_type, item['max_tries'])
+                raise
+            task_logger.error(err)
+            task_logger.error(
+                'Error extracting %s (attempt #%d), retrying after %d seconds:',
+                node_type,
+                tries,
+                item['retry_delay'] * tries
+            )
+            time.sleep(item['retry_delay'] * tries)
+
+
+def extract() -> dict[str, any]:
+    """ Extract gen3 data (graphdb) to json data dictionary, distributed across a Spark cluster """
+    with open(credentials, encoding='utf-8') as credentials_file:
+        refresh_token: dict[str, any] = json.load(credentials_file)
+
+    work_items: list[dict[str, any]] = []
     project: str
     for project in projects:
         project_tokens: list[str] = project.split('-')
@@ -71,42 +131,28 @@ def extract() -> dict[str, any]:
 
         program_name: str = project_tokens[0]
         project_code: str = project_tokens[1]
-        node_data[project] = {}
         node_type: str
         for node_type in node_types:
-            tries: int = 0
-            while tries < max(es_bulk_max_tries, 1):
-                tries += 1
-                logger.info('Extracting %s %s...', node_type, f'(attempt #{tries}) ' if tries > 1 else '')
-                try:
-                    export_results: any = sub.export_node(
-                        program_name,
-                        project_code,
-                        node_type,
-                        'json'
-                    )
-                    if 'error' in export_results and export_results['error']:
-                        raise RuntimeError(
-                            export_results['error'] if hasattr(export_results, 'error') else export_results
-                        )
-                    if 'data' not in export_results:
-                        logger.error('No data exported:')
-                        logger.error(export_results)
-                        raise RuntimeError('No data exported')
-                    node_data[project][node_type] = export_results['data']
-                    break
-                except Exception as err: # pylint: disable=broad-exception-caught
-                    if tries >= es_bulk_max_tries:
-                        logger.critical('Unable to extract %s, max tries (%d) attempted', node_type, es_bulk_max_tries)
-                        raise
-                    logger.error(err)
-                    logger.error(
-                        'Error extracting %s (attempt #%d), retrying after %d seconds:',
-                        node_type,
-                        tries,
-                        es_bulk_retry_delay * tries
-                    )
-                    time.sleep(es_bulk_retry_delay * tries)
+            work_items.append({
+                'project': project,
+                'program_name': program_name,
+                'project_code': project_code,
+                'node_type': node_type,
+                'base_url': base_url,
+                'refresh_token': refresh_token,
+                'max_tries': es_bulk_max_tries,
+                'retry_delay': es_bulk_retry_delay,
+            })
+
+    node_data: dict[str, any] = {project: {} for project in projects}
+    if work_items:
+        spark = get_spark_session()
+        results: list[dict[str, any]] = spark.sparkContext \
+            .parallelize(work_items, numSlices=len(work_items)) \
+            .map(_extract_node) \
+            .collect()
+        for result in results:
+            node_data[result['project']][result['node_type']] = result['data']
 
     logger.info('Extract successful')
     return node_data
@@ -114,12 +160,11 @@ def extract() -> dict[str, any]:
 
 def transform(data: dict[str, any]) -> list[dict[str, any]]:
     """ Transform specified data extracted from gen3 data portal (graphdb) to json """
-    logger.info('Generating Elasticsearch index mapping file nested_mapping.json')
+    logger.info('Generating Elasticsearch index mapping file %s', mapping_file)
     es_mapping: dict[str, any] = generate_es_index_mapping()
-    parent_dir: str = os.path.dirname(local_es_file_path) if local_es_file_path else './'
-    es_index_mapping_file: str = os.path.join(parent_dir, 'nested_mapping.json')
-    with open(es_index_mapping_file, 'w', encoding='utf-8') as mapping_file:
-        json.dump(es_mapping, mapping_file)
+    os.makedirs(os.path.dirname(mapping_file) or '.', exist_ok=True)
+    with open(mapping_file, 'w', encoding='utf-8') as mapping_f:
+        json.dump(es_mapping, mapping_f)
     return generate_subject_json(data, node_types)
 
 
@@ -131,12 +176,12 @@ def load(data: dict[str, any]) -> None:
 
 def load_data(data: dict[str, any]) -> None:
     """ Load gen3 data portal Elasticsearch data index with (extracted, transformed) json data """
-    load_es_data(data, es_port, index_name, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay)
+    load_es_data(data, es_port, index_name, es_host, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay, es_timeout, es_scheme)
 
 
 def load_array_config() -> None:
     """ Load gen3 data portal Elasticsearch array config index with array fields """
-    load_es_array_config(es_port, index_name)
+    load_es_array_config(es_port, index_name, es_host, es_scheme)
 
 
 if len(sys.argv) > 1:
@@ -216,6 +261,6 @@ if len(sys.argv) > 1:
                 old_index,
                 new_index
             )
-            switch_alias(es_port, alias, old_index, new_index)
+            switch_alias(es_port, alias, old_index, new_index, es_host, es_scheme)
         else:
             logger.fatal('Usage: python etl.py a [alias] [old_index] [new_index]')

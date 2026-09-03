@@ -9,6 +9,7 @@ import logging
 import copy
 import requests
 from dotenv import load_dotenv
+from spark_utils import get_spark_session
 
 
 load_dotenv('../.env')
@@ -702,60 +703,135 @@ def create_subject_record(
     return subject
 
 
-def generate_subject_json(data: dict[str, any], node_types: list[str]) -> list[dict[str, any]]:
-    """ Transform specified json input data extracted from graphdb into subject-oriented json data set """
-    # node_types = list(filter(lambda k: 'timing' not in k, node_types))
-    node_types: list[str] = list(filter(lambda t: NODE_TYPE_PERSON not in t, node_types))
+def _transform_project(item: dict[str, any]) -> tuple[list[dict[str, any]], list[dict[str, any]]]:
+    """
+    Transform a single project's exported records into subject-oriented json records. Runs as a
+    Spark task, possibly on a remote executor. Gen3 exports records (and the edges between them,
+    e.g. subject/timing/person associations) scoped to a single project, so each project's data is
+    self-contained and safe to process independently in parallel; a project never references
+    another project's nodes.
+
+    Populates this process's copy of the data-dictionary-derived globals (data_dictionary,
+    number_fields, node_type_fields_to_set) from a Spark broadcast variable fetched once per
+    executor via generate_subject_json(), rather than having every task re-fetch the dictionary
+    over the network or carry a full per-task copy. The actual per-record transform logic below
+    (create_subject_record, populate_node_record, etc.) is unchanged from the original
+    single-process implementation.
+    """
+    import logging
+
+    task_logger: logging.Logger = logging.getLogger(__name__)
+
+    project: str = item['project']
+    project_records: dict[str, any] = item['project_records']
+    node_types: list[str] = item['node_types']
+
+    globals_val: dict[str, any] = item['globals_bc'].value
+    data_dictionary.clear()
+    data_dictionary.update(globals_val['data_dictionary'])
+    number_fields.clear()
+    number_fields.extend(globals_val['number_fields'])
+    node_type_fields_to_set.clear()
+    node_type_fields_to_set.update(globals_val['node_type_fields_to_set'])
 
     problematic_records: list[dict[str, any]] = []
     subjects: dict[str, dict[str, any]] = {}
 
+    project_data: dict[str, any] = {project: project_records}
+    timings: dict[str, list[dict[str, any]]] = get_timings_by_subject_id(data=project_data)
+    persons: dict[str, dict[str, any]] = get_persons_by_person_id(data=project_data)
+
+    task_logger.info('Generating subject record set for project %s', project)
+    for node_type in node_types:
+        task_logger.info('Processing node type %s', node_type)
+
+        if node_type not in project_records:
+            task_logger.warning('Node type %s not in record set, skipping', node_type)
+            continue
+
+        record_num: int = 0
+        subject: dict[str, any]
+        record: dict[str, any]
+        node_type_records: list[dict[str, any]] = (
+            project_records[node_type]
+                if node_type != NODE_TYPE_SURVIVAL_CHARACTERISTIC
+                else sort_and_flatten_survival_characteristics(project_records[node_type])
+        )
+        for record in node_type_records:
+            record_num += 1
+            if record_num % 1000 == 0:
+                task_logger.info('%d %s records processed', record_num, node_type)
+
+            if node_type == NODE_TYPE_SUBJECT:
+                subject: dict[str, any] = create_subject_record(record, persons, timings, problematic_records)
+                if subject and subject['subject_submitter_id'] not in subjects:
+                    subjects[subject['subject_submitter_id']] = subject
+                elif subject:
+                    raise RuntimeError(
+                        f'Duplicate subject submitter id found: "{subject["subject_submitter_id"]}"'
+                    )
+            else:
+                if 'subjects' not in record:
+                    continue
+
+                if len(record['subjects']) > 1:
+                    task_logger.info('Too many subjects associated to this "%s" record', node_type)
+                    problematic_records.append(record)
+                    continue
+
+                populate_node_record(node_type, record, subjects, timings, problematic_records)
+
+    task_logger.info('%d subject records generated for project %s', len(subjects), project)
+    return list(subjects.values()), problematic_records
+
+
+def generate_subject_json(data: dict[str, any], node_types: list[str]) -> list[dict[str, any]]:
+    """
+    Transform specified json input data extracted from graphdb into subject-oriented json data set,
+    distributed per-project across a Spark cluster (see _transform_project for why per-project is a
+    safe partition boundary).
+    """
+    node_types: list[str] = list(filter(lambda t: NODE_TYPE_PERSON not in t, node_types))
+
     load_field_type_lists()
-    timings: dict[str, list[dict[str, any]]] = get_timings_by_subject_id(data=data)
-    persons: dict[str, dict[str, any]] = get_persons_by_person_id(data=data)
 
-    project: str
-    project_records: dict[str, any]
-    for project, project_records in data.items():
-        logger.info('Generating subject record set for project %s', project)
-        for node_type in node_types:
-            logger.info('Processing node type %s', node_type)
+    work_items: list[dict[str, any]] = [
+        {
+            'project': project,
+            'project_records': project_records,
+            'node_types': node_types,
+        }
+        for project, project_records in data.items()
+    ]
 
-            if node_type not in project_records:
-                logger.warning('Node type %s not in record set, skipping', node_type)
-                continue
+    subjects: dict[str, dict[str, any]] = {}
+    problematic_records: list[dict[str, any]] = []
+    if work_items:
+        spark = get_spark_session()
+        globals_bc = spark.sparkContext.broadcast({
+            'data_dictionary': data_dictionary,
+            'number_fields': number_fields,
+            'node_type_fields_to_set': node_type_fields_to_set,
+        })
+        for item in work_items:
+            item['globals_bc'] = globals_bc
+        results: list[tuple[list[dict[str, any]], list[dict[str, any]]]] = spark.sparkContext \
+            .parallelize(work_items, numSlices=len(work_items)) \
+            .map(_transform_project) \
+            .collect()
 
-            record_num: int = 0
+        project_subjects: list[dict[str, any]]
+        project_problematic_records: list[dict[str, any]]
+        for project_subjects, project_problematic_records in results:
             subject: dict[str, any]
-            record: dict[str, any]
-            node_type_records: list[dict[str, any]] = (
-                project_records[node_type]
-                    if node_type != NODE_TYPE_SURVIVAL_CHARACTERISTIC
-                    else sort_and_flatten_survival_characteristics(project_records[node_type])
-            )
-            for record in node_type_records:
-                record_num += 1
-                if record_num % 1000 == 0:
-                    logger.info('%d %s records processed', record_num, node_type)
-
-                if node_type == NODE_TYPE_SUBJECT:
-                    subject: dict[str, any] = create_subject_record(record, persons, timings, problematic_records)
-                    if subject and subject['subject_submitter_id'] not in subjects:
-                        subjects[subject['subject_submitter_id']] = subject
-                    elif subject:
-                        raise RuntimeError(
-                            f'Duplicate subject submitter id found: "{subject["subject_submitter_id"]}"'
-                        )
+            for subject in project_subjects:
+                if subject['subject_submitter_id'] not in subjects:
+                    subjects[subject['subject_submitter_id']] = subject
                 else:
-                    if 'subjects' not in record:
-                        continue
-
-                    if len(record['subjects']) > 1:
-                        logger.info('Too many subjects associated to this "%s" record', node_type)
-                        problematic_records.append(record)
-                        continue
-
-                    populate_node_record(node_type, record, subjects, timings, problematic_records)
+                    raise RuntimeError(
+                        f'Duplicate subject submitter id found: "{subject["subject_submitter_id"]}"'
+                    )
+            problematic_records.extend(project_problematic_records)
 
     logger.info('%d subject records generated', len(subjects))
     logger.info('%d problem records found', len(problematic_records))
