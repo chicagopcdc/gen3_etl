@@ -51,7 +51,8 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
     - transform.py
     - load.py
     - spark_utils.py
-    - files/nested_mapping.json
+
+Note: `nested_mapping.json` does not need to be uploaded — it is generated at runtime by the transform step and written to the path set by `MAPPING_FILE`.
 
 Generate an elastic IP for the master node or deploy EMR in the same VPC as the env you are loading data to:
 - `ALLOC_ID=$(aws ec2 allocate-address --domain vpc --profile pcdc_play --region us-east-2 --query AllocationId --output text)`

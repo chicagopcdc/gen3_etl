@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from spark_utils import get_spark_session
 from transform import generate_subject_json
 from transform import generate_es_index_mapping
-from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX
+from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX, mapping_file
 
 
 # set up logging
@@ -157,12 +157,11 @@ def extract() -> dict[str, any]:
 
 def transform(data: dict[str, any]) -> list[dict[str, any]]:
     """ Transform specified data extracted from gen3 data portal (graphdb) to json """
-    logger.info('Generating Elasticsearch index mapping file nested_mapping.json')
+    logger.info('Generating Elasticsearch index mapping file %s', mapping_file)
     es_mapping: dict[str, any] = generate_es_index_mapping()
-    parent_dir: str = os.path.dirname(local_es_file_path) if local_es_file_path else './'
-    es_index_mapping_file: str = os.path.join(parent_dir, 'nested_mapping.json')
-    with open(es_index_mapping_file, 'w', encoding='utf-8') as mapping_file:
-        json.dump(es_mapping, mapping_file)
+    os.makedirs(os.path.dirname(mapping_file) or '.', exist_ok=True)
+    with open(mapping_file, 'w', encoding='utf-8') as mapping_f:
+        json.dump(es_mapping, mapping_f)
     return generate_subject_json(data, node_types)
 
 
