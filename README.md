@@ -8,14 +8,19 @@ The ETL is controlled by environment variables. Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BASE_URL` | `http://localhost` | Gen3 API base URL. |
 | `PROJECT_LIST` | `["pcdc-20220808"]` | JSON array of projects to process. Set to a single-element array to run for one project only. |
+| `TYPES` | `[]` | JSON array of node types to extract. Empty means all types. |
+| `INDEX_NAME` | `pcdc_20220808` | Elasticsearch index name to load into. |
 | `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors. |
 | `ES_PORT` | `9200` | Elasticsearch port. |
-| `ES_TIMEOUT` | `60` | Timeout in seconds for ES bulk write requests. |
+| `ES_BULK_BATCH_SIZE` | `1000` | Records per bulk write batch. |
 | `ES_BULK_MAX_TRIES` | `5` | Max retry attempts per bulk batch. |
 | `ES_BULK_RETRY_DELAY` | `60` | Base delay in seconds between retries (multiplied by attempt number). |
+| `ES_TIMEOUT` | `60` | Timeout in seconds for ES bulk write requests. |
 | `SPARK_MASTER` | `local[*]` | Spark master URL. `local[*]` uses all local cores; set to the EMR master URL when running on a cluster. |
 | `CREDENTIALS` | `../credentials.json` | Path to the Gen3 API credentials file. |
+| `MAPPING_FILE` | `../files/nested_mapping.json` | Path to the Elasticsearch field mapping JSON file. |
 
 To run for a single project, set `PROJECT_LIST` to a one-element JSON array:
 ```bash
@@ -43,6 +48,10 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
     pip install gen3==4.5.0 python-dotenv "urllib3<2" requests elasticsearch
     ```
     - etl.py
+    - transform.py
+    - load.py
+    - spark_utils.py
+    - files/nested_mapping.json
 
 Generate an elastic IP for the master node or deploy EMR in the same VPC as the env you are loading data to:
 - `ALLOC_ID=$(aws ec2 allocate-address --domain vpc --profile pcdc_play --region us-east-2 --query AllocationId --output text)`
@@ -76,7 +85,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20220808\"]'; aws s3 cp s3://<bucket>/smoke/credentials.json ./credentials.json && aws s3 cp s3://<bucket>/smoke/etl.py ./etl.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://<bucket>/manual-logs/output.txt"
+      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20220808\"]'; export MAPPING_FILE='./nested_mapping.json'; aws s3 cp s3://<bucket>/smoke/credentials.json ./credentials.json && aws s3 cp s3://<bucket>/smoke/etl.py ./etl.py && aws s3 cp s3://<bucket>/smoke/transform.py ./transform.py && aws s3 cp s3://<bucket>/smoke/load.py ./load.py && aws s3 cp s3://<bucket>/smoke/spark_utils.py ./spark_utils.py && aws s3 cp s3://<bucket>/smoke/nested_mapping.json ./nested_mapping.json && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://<bucket>/manual-logs/output.txt"
     ]
   }
 ]

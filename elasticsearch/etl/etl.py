@@ -53,7 +53,7 @@ es_port: int = int(os.environ.get('ES_PORT', 9200))
 index_name: str = os.environ.get('INDEX_NAME', 'pcdc_20220808')
 
 # Elasticsearch parameters for bulk/batch api
-es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 10))
+es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 1000))
 es_bulk_max_tries: int = int(os.environ.get('ES_BULK_MAX_TRIES', 5))
 es_bulk_retry_delay: int = int(os.environ.get('ES_BULK_RETRY_DELAY', 60))
 es_timeout: int = int(os.environ.get('ES_TIMEOUT', 60))

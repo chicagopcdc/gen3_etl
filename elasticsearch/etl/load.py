@@ -1,6 +1,7 @@
 """ Load Elasticsearch index and switch aliases """
 import json
 import logging
+import os
 import sys
 import time
 
@@ -16,6 +17,8 @@ ES_BULK_RETRY_DELAY_DEFAULT: int = 60
 ES_TIMEOUT_DEFAULT: int = 60
 ES_INDEX_MAPPING_TOTAL_FIELDS_LIMIT: int = 2000
 ARRAY_CONFIG_ALIAS_SUFFIX: str = '-array-config'
+MAPPING_FILE_DEFAULT: str = os.path.join(os.path.dirname(__file__), '..', 'files', 'nested_mapping.json')
+mapping_file: str = os.environ.get('MAPPING_FILE', MAPPING_FILE_DEFAULT)
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -189,7 +192,7 @@ def load_es_data_index(
     logger.info('Loading ES data index %s', index_name)
     # load field mapping
     mapping: dict[str, any]
-    with open('../files/nested_mapping.json', encoding='utf-8') as mapping_f:
+    with open(mapping_file, encoding='utf-8') as mapping_f:
         mapping = json.load(mapping_f)
 
     # data to be loaded
