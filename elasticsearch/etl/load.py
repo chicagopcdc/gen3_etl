@@ -31,14 +31,14 @@ for handler in logger.handlers:
     handler.setFormatter(formatter)
 
 
-def get_es(es_port: int, es_host: str = 'localhost', es_timeout: int = ES_TIMEOUT_DEFAULT) -> Elasticsearch:
-    """ Get Elasticsearch instance with specified port and host """
-    return Elasticsearch([{'host': es_host, 'port': int(es_port), 'schema': 'http'}], timeout=es_timeout)
+def get_es(es_port: int, es_host: str = 'localhost', es_timeout: int = ES_TIMEOUT_DEFAULT, es_scheme: str = 'http') -> Elasticsearch:
+    """ Get Elasticsearch instance with specified port, host, and scheme """
+    return Elasticsearch([{'host': es_host, 'port': int(es_port), 'schema': es_scheme}], timeout=es_timeout)
 
 
-def switch_alias(es_port: int, alias: str, old_index: str, new_index: str, es_host: str = 'localhost') -> None:
+def switch_alias(es_port: int, alias: str, old_index: str, new_index: str, es_host: str = 'localhost', es_scheme: str = 'http') -> None:
     """ Switch Elasticsearch alias for specified instance and index names """
-    es_instance: Elasticsearch = get_es(es_port, es_host)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
 
     alias_array_config: str = f'{alias}{ARRAY_CONFIG_ALIAS_SUFFIX}'
     old_index_array_config: str = f'{old_index}{ARRAY_CONFIG_ALIAS_SUFFIX}'
@@ -138,7 +138,7 @@ def _load_batch(item: dict[str, any]) -> None:
     task_logger: logging.Logger = logging.getLogger(__name__)
 
     es_instance: Elasticsearch = Elasticsearch(
-        [{'host': item['es_host'], 'port': int(item['es_port']), 'schema': 'http'}],
+        [{'host': item['es_host'], 'port': int(item['es_port']), 'schema': item['es_scheme']}],
         timeout=item['es_timeout']
     )
     try_bulk(es_instance, item['bulk_actions'], item['max_tries'], item['retry_delay'], item['es_timeout'])
@@ -182,12 +182,13 @@ def load_es_data_index(
     es_bulk_batch_size: int = ES_BULK_BATCH_SIZE_DEFAULT,
     es_bulk_max_tries: int = ES_BULK_MAX_TRIES_DEFAULT,
     es_bulk_retry_delay: int = ES_BULK_RETRY_DELAY_DEFAULT,
-    es_timeout: int = ES_TIMEOUT_DEFAULT
+    es_timeout: int = ES_TIMEOUT_DEFAULT,
+    es_scheme: str = 'http'
 ) -> None:
     """
     Load ES index for specified instance, index, and json data. Creates the index once (via
     es_instance, on the driver), then distributes the bulk-write batches across a Spark cluster
-    (es_host/es_port are passed separately so each task can build its own client).
+    (es_host/es_port/es_scheme are passed separately so each task can build its own client).
     """
     logger.info('Loading ES data index %s', index_name)
     # load field mapping
@@ -225,6 +226,7 @@ def load_es_data_index(
             'bulk_actions': batch,
             'es_host': es_host,
             'es_port': es_port,
+            'es_scheme': es_scheme,
             'es_timeout': es_timeout,
             'max_tries': es_bulk_max_tries,
             'retry_delay': es_bulk_retry_delay,
@@ -249,14 +251,15 @@ def load_es_data(
     es_bulk_batch_size: int = ES_BULK_BATCH_SIZE_DEFAULT,
     es_bulk_max_tries: int = ES_BULK_MAX_TRIES_DEFAULT,
     es_bulk_retry_delay: int = ES_BULK_RETRY_DELAY_DEFAULT,
-    es_timeout: int = ES_TIMEOUT_DEFAULT
+    es_timeout: int = ES_TIMEOUT_DEFAULT,
+    es_scheme: str = 'http'
 ) -> None:
     """
     'Public'-facing function to load ES data index for specified json data set, ES host/port and index name.
     Optional parameters can be specified for ES bulk API call batch size, max tries on exception, and delay
     between tries.
     """
-    es_instance: Elasticsearch = get_es(es_port, es_host)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
     load_es_data_index(
         es_instance,
         data,
@@ -266,11 +269,12 @@ def load_es_data(
         es_bulk_batch_size,
         es_bulk_max_tries,
         es_bulk_retry_delay,
-        es_timeout
+        es_timeout,
+        es_scheme
     )
 
 
-def load_es_array_config(es_port: int, index_name: str, es_host: str = 'localhost') -> None:
+def load_es_array_config(es_port: int, index_name: str, es_host: str = 'localhost', es_scheme: str = 'http') -> None:
     """ Load Elasticsearch data and array config indexes for specified json data set, ES host/port and index name """
-    es_instance: Elasticsearch = get_es(es_port, es_host)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
     load_es_array_config_index(es_instance, index_name)

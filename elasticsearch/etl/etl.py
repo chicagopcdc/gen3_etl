@@ -49,6 +49,9 @@ es_host: str = os.environ.get('ES_HOST', 'localhost')
 # Elasticsearch port
 es_port: int = int(os.environ.get('ES_PORT', 9200))
 
+# Elasticsearch scheme: 'http' for local/self-managed, 'https' for AWS OpenSearch
+es_scheme: str = os.environ.get('ES_SCHEME', 'http')
+
 # Elasticsearch index name
 index_name: str = os.environ.get('INDEX_NAME', 'pcdc_20220808')
 
@@ -173,12 +176,12 @@ def load(data: dict[str, any]) -> None:
 
 def load_data(data: dict[str, any]) -> None:
     """ Load gen3 data portal Elasticsearch data index with (extracted, transformed) json data """
-    load_es_data(data, es_port, index_name, es_host, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay, es_timeout)
+    load_es_data(data, es_port, index_name, es_host, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay, es_timeout, es_scheme)
 
 
 def load_array_config() -> None:
     """ Load gen3 data portal Elasticsearch array config index with array fields """
-    load_es_array_config(es_port, index_name, es_host)
+    load_es_array_config(es_port, index_name, es_host, es_scheme)
 
 
 if len(sys.argv) > 1:
@@ -258,6 +261,6 @@ if len(sys.argv) > 1:
                 old_index,
                 new_index
             )
-            switch_alias(es_port, alias, old_index, new_index, es_host)
+            switch_alias(es_port, alias, old_index, new_index, es_host, es_scheme)
         else:
             logger.fatal('Usage: python etl.py a [alias] [old_index] [new_index]')

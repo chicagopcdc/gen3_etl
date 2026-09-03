@@ -12,8 +12,9 @@ The ETL is controlled by environment variables. Key variables:
 | `PROJECT_LIST` | `["pcdc-20220808"]` | JSON array of projects to process. Set to a single-element array to run for one project only. |
 | `TYPES` | `[]` | JSON array of node types to extract. Empty means all types. |
 | `INDEX_NAME` | `pcdc_20220808` | Elasticsearch index name to load into. |
-| `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors. |
-| `ES_PORT` | `9200` | Elasticsearch port. |
+| `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors (hostname only, no `https://` prefix). |
+| `ES_PORT` | `9200` | Elasticsearch port. Use `443` for AWS OpenSearch. |
+| `ES_SCHEME` | `http` | Connection scheme. Set to `https` for AWS OpenSearch. |
 | `ES_BULK_BATCH_SIZE` | `1000` | Records per bulk write batch. |
 | `ES_BULK_MAX_TRIES` | `5` | Max retry attempts per bulk batch. |
 | `ES_BULK_RETRY_DELAY` | `60` | Base delay in seconds between retries (multiplied by attempt number). |
@@ -105,7 +106,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export MAPPING_FILE='./nested_mapping.json'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
+      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export ES_PORT='443'; export ES_SCHEME='https'; export MAPPING_FILE='./nested_mapping.json'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
     ]
   }
 ]
