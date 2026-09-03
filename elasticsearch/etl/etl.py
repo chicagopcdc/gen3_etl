@@ -94,9 +94,7 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
                 'json'
             )
             if 'error' in export_results and export_results['error']:
-                raise RuntimeError(
-                    export_results['error'] if hasattr(export_results, 'error') else export_results
-                )
+                raise RuntimeError(export_results['error'])
             if 'data' not in export_results:
                 task_logger.error('No data exported:')
                 task_logger.error(export_results)
@@ -114,7 +112,6 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
                 item['retry_delay'] * tries
             )
             time.sleep(item['retry_delay'] * tries)
-    raise RuntimeError(f'Unable to extract {node_type}')
 
 
 def extract() -> dict[str, any]:
