@@ -54,18 +54,21 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
 
 Note: `nested_mapping.json` does not need to be uploaded — it is generated at runtime by the transform step and written to the path set by `MAPPING_FILE`.
 
-Generate an elastic IP for the master node or deploy EMR in the same VPC as the env you are loading data to:
-- `ALLOC_ID=$(aws ec2 allocate-address --domain vpc --profile pcdc_play --region us-east-2 --query AllocationId --output text)`
-- `echo "$ALLOC_ID"`
-
 #### VPC / networking considerations
 The cluster is pinned to a VPC by passing a `SubnetId` in `--ec2-attributes` (the subnet implicitly determines the VPC). A few things to verify before creating the cluster:
 
 - **Subnet type**: a private subnet with a NAT gateway is recommended. The bootstrap needs outbound internet access to run `pip install`; the extract step needs to reach the Gen3 API. Without a NAT (or internet gateway for public subnets) both will fail.
 - **DNS**: the VPC must have *DNS resolution* and *DNS hostnames* both enabled (VPC → Actions → Edit DNS settings). EMR requires this.
-- **OpenSearch reachability**: since Spark executors write to OpenSearch directly, every node (master + core/task) must be able to reach the OpenSearch endpoint on port 443. If OpenSearch is in the same VPC, add an inbound rule to its security group allowing port 443 from the EMR-managed security groups. If it is in a different VPC, set up VPC peering or a Transit Gateway with matching route table entries.
+- **OpenSearch reachability**: since Spark executors write to OpenSearch directly, every node (master + core/task) must be able to reach the OpenSearch endpoint on port 443. Add an inbound rule to the OpenSearch security group allowing port 443 from the EMR-managed security groups.
 - **S3 access**: add a [VPC gateway endpoint for S3](https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-s3.html) to the subnet's route table. It is free, keeps S3 traffic off the internet, and avoids NAT data-transfer costs for bootstrap files, logs, and step files.
-- **Elastic IP**: still required even when EMR is in the same VPC as OpenSearch, because the Gen3 API is behind a firewall whose allowlist must include the master node's outbound IP.
+- **Elastic IP**: only needed if the Gen3 API (Sheepdog) is in a different VPC and protected by a firewall allowlist. If EMR is deployed in the same VPC as both OpenSearch and Sheepdog, all traffic is private and no elastic IP is required.
+
+#### Elastic IP setup (cross-VPC / firewall-protected Gen3 only)
+Skip this section if EMR is in the same VPC as OpenSearch and Sheepdog.
+
+Allocate an elastic IP so the master node has a known stable public IP to add to the Gen3 ALB allowlist:
+- `ALLOC_ID=$(aws ec2 allocate-address --domain vpc --profile pcdc_play --region us-east-2 --query AllocationId --output text)`
+- `echo "$ALLOC_ID"`
 
 Start the cluster:
 - `aws ec2 create-key-pair --key-name emr-cluster-dev --profile pcdc_play --region us-east-2 --query 'KeyMaterial' --output text > emr-cluster-dev.pem`
@@ -78,7 +81,12 @@ Start the cluster:
 - `aws ec2 associate-address --instance-id $MASTER_INSTANCE_ID --allocation-id $ALLOC_ID --profile pcdc_play --region us-east-2`
 - `aws ec2 describe-addresses --allocation-ids $ALLOC_ID --profile pcdc_play --region us-east-2 --query 'Addresses[0].{PublicIP:PublicIp,InstanceId:InstanceId,PrivateIP:PrivateIpAddress}' --output table`
 
-You can SSH and run the script directly on the machine:
+#### Accessing the master node
+**Same-VPC deployment (recommended)**: use AWS Systems Manager Session Manager — no public IP or open port 22 required:
+- `aws ssm start-session --target $MASTER_INSTANCE_ID --profile pcdc_play --region us-east-2`
+- Once on the node, set required env vars and run: `export ES_HOST='<opensearch-endpoint>' && export PROJECT_LIST='["pcdc-20220808"]' && /home/hadoop/etl_venv/bin/python3 etl.py`
+
+**Cross-VPC / elastic IP deployment**: SSH via the elastic IP:
 - Get your current IP to add to the security group: `curl -4 https://ifconfig.me`
 - Look up the master node's security group: `aws ec2 describe-instances --instance-ids $MASTER_INSTANCE_ID --profile pcdc_play --region us-east-2 --query 'Reservations[0].Instances[0].SecurityGroups[].{Name:GroupName,GroupId:GroupId}' --output table`
 - Authorize your IP (replace `<sg-id>` and `<your-ip>`): `aws ec2 authorize-security-group-ingress --group-id <sg-id> --protocol tcp --port 22 --cidr <your-ip>/32 --profile pcdc_play --region us-east-2`
@@ -110,8 +118,8 @@ Terminate the cluster:
 - `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --query 'Cluster.Status.State' --output text`
 
 
-Where the `allocation-id` is an elastic IP assigned to the EMR master node so it can connect with firewall protected ENVs like dev and staging by adding it's IP to the ENV ALB.
-And remember to update all the IDs and ENV names accordingly.
+Where used, the `allocation-id` is an elastic IP assigned to the EMR master node so it can connect with firewall-protected environments like dev and staging by adding its IP to the environment's ALB allowlist. This is only needed when EMR is not in the same VPC as Sheepdog.
+Remember to update all IDs, subnet IDs, and endpoint names accordingly.
 
 
 ## graph
