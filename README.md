@@ -124,3 +124,7 @@ Remember to update all IDs, subnet IDs, and endpoint names accordingly.
 
 ## graph
 Scripts to import, export, and maintain data in the Gen3 graph db
+
+
+# TODO
+- terraform code to setup the basic infrastructure / networking / S3 used by EMR
