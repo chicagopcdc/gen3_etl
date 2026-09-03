@@ -112,7 +112,7 @@ cat > steps.json << EOF
 ]
 EOF
 
-aws emr add-steps --cluster-id $CLUSTER_ID --steps file://steps.json
+aws emr add-steps --cluster-id $CLUSTER_ID --steps file://steps.json --region us-east-1 --profile luca_dev
 ```
 
 Terminate the cluster:
