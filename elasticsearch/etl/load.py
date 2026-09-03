@@ -130,8 +130,8 @@ def _load_batch(item: dict[str, any]) -> None:
     rather than reusing the driver's, and does its own logging setup rather than
     referencing the driver's module-level logger.
     """
-    import logging 
-    from elasticsearch import Elasticsearch 
+    import logging
+    from elasticsearch import Elasticsearch
     task_logger: logging.Logger = logging.getLogger(__name__)
 
     es_instance: Elasticsearch = Elasticsearch(

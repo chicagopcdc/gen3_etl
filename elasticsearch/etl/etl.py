@@ -68,9 +68,9 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
     than referencing the driver's module-level logger, which may not be picklable/
     available on the executor.
     """
-    import logging 
+    import logging
     import time
-    from gen3.auth import Gen3Auth 
+    from gen3.auth import Gen3Auth
     from gen3.submission import Gen3Submission
     task_logger: logging.Logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ def load(data: dict[str, any]) -> None:
 
 def load_data(data: dict[str, any]) -> None:
     """ Load gen3 data portal Elasticsearch data index with (extracted, transformed) json data """
-    load_es_data(data, es_port, index_name, es_host, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay)
+    load_es_data(data, es_port, index_name, es_host, es_bulk_batch_size, es_bulk_max_tries, es_bulk_retry_delay, es_timeout)
 
 
 def load_array_config() -> None:

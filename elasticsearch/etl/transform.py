@@ -712,10 +712,11 @@ def _transform_project(item: dict[str, any]) -> tuple[list[dict[str, any]], list
     another project's nodes.
 
     Populates this process's copy of the data-dictionary-derived globals (data_dictionary,
-    number_fields, node_type_fields_to_set) from values fetched once on the driver via
-    load_field_type_lists(), rather than having every task re-fetch the dictionary over the
-    network. The actual per-record transform logic below (create_subject_record,
-    populate_node_record, etc.) is unchanged from the original single-process implementation.
+    number_fields, node_type_fields_to_set) from a Spark broadcast variable fetched once per
+    executor via generate_subject_json(), rather than having every task re-fetch the dictionary
+    over the network or carry a full per-task copy. The actual per-record transform logic below
+    (create_subject_record, populate_node_record, etc.) is unchanged from the original
+    single-process implementation.
     """
     import logging
 
@@ -725,12 +726,13 @@ def _transform_project(item: dict[str, any]) -> tuple[list[dict[str, any]], list
     project_records: dict[str, any] = item['project_records']
     node_types: list[str] = item['node_types']
 
+    globals_val: dict[str, any] = item['globals_bc'].value
     data_dictionary.clear()
-    data_dictionary.update(item['data_dictionary'])
+    data_dictionary.update(globals_val['data_dictionary'])
     number_fields.clear()
-    number_fields.extend(item['number_fields'])
+    number_fields.extend(globals_val['number_fields'])
     node_type_fields_to_set.clear()
-    node_type_fields_to_set.update(item['node_type_fields_to_set'])
+    node_type_fields_to_set.update(globals_val['node_type_fields_to_set'])
 
     problematic_records: list[dict[str, any]] = []
     subjects: dict[str, dict[str, any]] = {}
@@ -798,9 +800,6 @@ def generate_subject_json(data: dict[str, any], node_types: list[str]) -> list[d
             'project': project,
             'project_records': project_records,
             'node_types': node_types,
-            'data_dictionary': data_dictionary,
-            'number_fields': number_fields,
-            'node_type_fields_to_set': node_type_fields_to_set,
         }
         for project, project_records in data.items()
     ]
@@ -809,6 +808,13 @@ def generate_subject_json(data: dict[str, any], node_types: list[str]) -> list[d
     problematic_records: list[dict[str, any]] = []
     if work_items:
         spark = get_spark_session()
+        globals_bc = spark.sparkContext.broadcast({
+            'data_dictionary': data_dictionary,
+            'number_fields': number_fields,
+            'node_type_fields_to_set': node_type_fields_to_set,
+        })
+        for item in work_items:
+            item['globals_bc'] = globals_bc
         results: list[tuple[list[dict[str, any]], list[dict[str, any]]]] = spark.sparkContext \
             .parallelize(work_items, numSlices=len(work_items)) \
             .map(_transform_project) \
