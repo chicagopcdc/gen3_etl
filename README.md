@@ -59,8 +59,9 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
     set -e
     python3 -m venv /home/hadoop/etl_venv
     source /home/hadoop/etl_venv/bin/activate
-    # pyspark is provided by the EMR runtime and intentionally omitted here
-    pip install gen3==4.5.0 python-dotenv "urllib3<2" requests elasticsearch
+    # pyspark must be installed in the venv so the step driver and YARN executors
+    # can both import it. Use the same major.minor as the EMR runtime (3.5.x on EMR 7.x).
+    pip install gen3==4.5.0 python-dotenv "urllib3<2" requests elasticsearch pyspark==3.5.0
     ```
     - etl.py
     - transform.py
@@ -90,6 +91,10 @@ Start the cluster:
 - `chmod 400 emr-cluster-dev.pem`
 - `aws emr create-default-roles --profile luca_dev --region us-east-1`
 - `CLUSTER_ID=$(aws emr create-cluster --name "gen3-etl-test" --release-label emr-7.13.0 --applications Name=Spark --instance-type m5.xlarge --instance-count 1 --use-default-roles --ec2-attributes KeyName=emr-cluster-dev,SubnetId=<subnet-id> --bootstrap-actions Path=s3://gen3-etl-smoke-test-973342646972/smoke/bootstrap.sh --log-uri s3://gen3-etl-smoke-test-973342646972/logs/ --profile pcdc_play --region us-east-2 --query ClusterId --output text)`
+    - to find the subnet:
+        - find the VPC `aws ec2 describe-vpcs   --query 'Vpcs[*].{VpcId:VpcId,CIDR:CidrBlock,Name:Tags[?Key==`Name`]|[0].Value}'   --output table   --profile luca_dev --region us-east-1`
+        - find the subnets: `aws ec2 describe-subnets --filters "Name=vpc-id,Values=<vpc-id>" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].{SubnetId:SubnetId,AZ:AvailabilityZone,CIDR:CidrBlock,Name:Tags[?Key==`Name`]|[0].Value}' --output table --profile luca_dev --region us-east-1`
+        - to see which one connects to the NAT gateway: `aws ec2 describe-route-tables --filters "Name=association.subnet-id,Values=<subnet-id>" --profile luca_dev --region us-east-1`
 - `echo "$CLUSTER_ID"`
 - `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --query 'Cluster.Status.State' --output text`
 - `MASTER_INSTANCE_ID=$(aws emr list-instances --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --instance-group-types MASTER --query 'Instances[0].Ec2InstanceId' --output text)`
@@ -120,7 +125,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export INDEX_NAME='pcdc_20260414'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export ES_PORT='443'; export ES_SCHEME='https'; export SPARK_MASTER='yarn'; export MAPPING_FILE='./nested_mapping.json'; export CREDENTIALS='./credentials.json'; export DICTIONARY_URL='https://portal-dev.pedscommons.org/api/v0/submission/_dictionary/_all'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py etl ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
+      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export INDEX_NAME='pcdc_20260414'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export ES_PORT='443'; export ES_SCHEME='https'; export SPARK_MASTER='yarn'; export PYSPARK_PYTHON='/home/hadoop/etl_venv/bin/python3'; export MAPPING_FILE='./nested_mapping.json'; export CREDENTIALS='./credentials.json'; export DICTIONARY_URL='https://portal-dev.pedscommons.org/api/v0/submission/_dictionary/_all'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py etl ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
     ]
   }
 ]
@@ -130,8 +135,8 @@ aws emr add-steps --cluster-id $CLUSTER_ID --steps file://steps.json --region us
 ```
 
 Terminate the cluster:
-- `aws emr terminate-clusters --cluster-ids $CLUSTER_ID --profile pcdc_play --region us-east-2`
-- `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --query 'Cluster.Status.State' --output text`
+- `aws emr terminate-clusters --cluster-ids $CLUSTER_ID --profile luca_dev --region us-east-1`
+- `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile luca_dev --region us-east-1 --query 'Cluster.Status.State' --output text`
 
 
 Where used, the `allocation-id` is an elastic IP assigned to the EMR master node so it can connect with firewall-protected environments like dev and staging by adding its IP to the environment's ALB allowlist. This is only needed when EMR is not in the same VPC as Sheepdog.
