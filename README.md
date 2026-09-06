@@ -157,4 +157,30 @@ Scripts to import, export, and maintain data in the Gen3 graph db
 
 
 # TODO
-- terraform code to setup the basic infrastructure / networking / S3 used by EMR
+- terraform code to setup the basic infrastructure / networking / S3 / cloudwatch used by EMR
+- push logs to cloudwatch: 
+```
+Option 3: CloudWatch Logs (persistent, no SSM needed)
+
+Add a CloudWatch log group to the EMR cluster at creation time — EMR will stream step stdout/stderr live:
+
+CLUSTER_ID=$(aws emr create-cluster \
+  --name "gen3-etl-test" \
+  --release-label emr-7.13.0 \
+  --applications Name=Spark \
+  --instance-type m5.xlarge --instance-count 1 \
+  --use-default-roles \
+  --ec2-attributes SubnetId=<subnet-id> \
+  --bootstrap-actions Path=s3://gen3-etl-smoke-test-973342646972/smoke/bootstrap.sh \
+  --log-uri s3://gen3-etl-smoke-test-973342646972/logs/ \
+  --configuration '[{"Classification":"container-log4j2","Properties":{"appender.rolling.type":"RollingFile"}}]' \
+  --profile pcdc_play --region us-east-2 \
+  --query ClusterId --output text)
+
+Then tail from your laptop with the AWS CLI:
+aws logs tail /aws/emr/clusters/$CLUSTER_ID \
+  --follow \
+  --profile pcdc_play --region us-east-2
+
+(You'll need to create the log group first: aws logs create-log-group --log-group-name /aws/emr/clusters/$CLUSTER_ID --profile pcdc_play --region us-east-2)
+```

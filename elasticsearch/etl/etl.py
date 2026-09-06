@@ -104,6 +104,19 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
                 raise RuntimeError('No data exported')
             return {'project': project, 'node_type': node_type, 'data': export_results['data']}
         except Exception as err: # pylint: disable=broad-exception-caught
+            # Only retry on transient network / HTTP errors. Permanent failures
+            # (PermissionError, ValueError, FileNotFoundError, …) are re-raised
+            # immediately so Spark doesn't waste minutes sleeping before an
+            # outcome that will never change.
+            import requests as _requests
+            retryable = (
+                _requests.exceptions.ConnectionError,
+                _requests.exceptions.Timeout,
+                _requests.exceptions.HTTPError,
+                OSError,  # covers socket-level timeouts surfaced as OSError
+            )
+            if not isinstance(err, retryable):
+                raise
             if tries >= item['max_tries']:
                 task_logger.critical('Unable to extract %s, max tries (%d) attempted', node_type, item['max_tries'])
                 raise
