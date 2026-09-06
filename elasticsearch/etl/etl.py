@@ -72,10 +72,16 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
     available on the executor.
     """
     import logging
+    import os
     import time
     from gen3.auth import Gen3Auth
     from gen3.submission import Gen3Submission
     task_logger: logging.Logger = logging.getLogger(__name__)
+
+    # YARN executor containers mount /home/hadoop read-only, so Gen3Auth cannot
+    # create its token cache there even when HOME is correctly set to /home/hadoop.
+    # Redirect HOME to /tmp, which is always writable inside a YARN container.
+    os.environ['HOME'] = '/tmp'
 
     project: str = item['project']
     program_name: str = item['program_name']

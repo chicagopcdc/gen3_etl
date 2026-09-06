@@ -12,10 +12,12 @@ def get_spark_session() -> 'SparkSession':
     unwritable parent directory (/home) that YARN sometimes injects as HOME.
     """
     from pyspark.sql import SparkSession
-    executor_home = os.environ.get('HOME', '/home/hadoop')
+    # Use /tmp as HOME for executor containers: YARN mounts /home/hadoop read-only
+    # so any library that writes to $HOME/.cache (e.g. Gen3Auth token cache) will
+    # fail. /tmp is always writable inside a YARN container.
     return SparkSession.builder \
         .appName('gen3_etl') \
         .master(os.environ.get('SPARK_MASTER', 'local[*]')) \
-        .config('spark.executorEnv.HOME', executor_home) \
-        .config('spark.yarn.appMasterEnv.HOME', executor_home) \
+        .config('spark.executorEnv.HOME', '/tmp') \
+        .config('spark.yarn.appMasterEnv.HOME', '/tmp') \
         .getOrCreate()
