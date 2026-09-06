@@ -33,7 +33,7 @@ for handler in logger.handlers:
 
 def get_es(es_port: int, es_host: str = 'localhost', es_timeout: int = ES_TIMEOUT_DEFAULT, es_scheme: str = 'http') -> Elasticsearch:
     """ Get Elasticsearch instance with specified port, host, and scheme """
-    return Elasticsearch([{'host': es_host, 'port': int(es_port), 'schema': es_scheme}], timeout=es_timeout)
+    return Elasticsearch([{'host': es_host, 'port': int(es_port), 'scheme': es_scheme}], timeout=es_timeout)
 
 
 def switch_alias(es_port: int, alias: str, old_index: str, new_index: str, es_host: str = 'localhost', es_scheme: str = 'http') -> None:
@@ -138,7 +138,7 @@ def _load_batch(item: dict[str, any]) -> None:
     task_logger: logging.Logger = logging.getLogger(__name__)
 
     es_instance: Elasticsearch = Elasticsearch(
-        [{'host': item['es_host'], 'port': int(item['es_port']), 'schema': item['es_scheme']}],
+        [{'host': item['es_host'], 'port': int(item['es_port']), 'scheme': item['es_scheme']}],
         timeout=item['es_timeout']
     )
     try_bulk(es_instance, item['bulk_actions'], item['max_tries'], item['retry_delay'], item['es_timeout'])
@@ -238,6 +238,16 @@ def load_es_data_index(
     ]
 
     spark = get_spark_session()
+
+    # Distribute our Python modules to YARN executor containers so cloudpickle
+    # can resolve 'import load' (and its siblings) when deserializing tasks.
+    import os as _os
+    _step_dir = _os.getcwd()
+    for _py in ('load.py', 'transform.py', 'spark_utils.py'):
+        _fp = _os.path.join(_step_dir, _py)
+        if _os.path.exists(_fp):
+            spark.sparkContext.addPyFile(_fp)
+
     spark.sparkContext.parallelize(work_items, numSlices=len(work_items)).foreach(_load_batch)
 
     logger.info('Loaded %d records into index "%s"', len(docs), index_name)

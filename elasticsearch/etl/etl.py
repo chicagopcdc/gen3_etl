@@ -105,9 +105,19 @@ def _extract_node(item: dict[str, any]) -> dict[str, any]:
             if 'error' in export_results and export_results['error']:
                 raise RuntimeError(export_results['error'])
             if 'data' not in export_results:
-                task_logger.error('No data exported:')
-                task_logger.error(export_results)
-                raise RuntimeError('No data exported')
+                # Gen3 returns {'message': 'dictionary does not have node with type X'}
+                # when the node type doesn't exist in this project's schema.
+                # Treat it as empty data (skip) rather than a fatal error — not every
+                # project has every node type.
+                message = export_results.get('message', '') if isinstance(export_results, dict) else ''
+                if 'does not have node with type' in message:
+                    task_logger.warning(
+                        'Node type %s not in dictionary for %s — skipping',
+                        node_type, project
+                    )
+                    return {'project': project, 'node_type': node_type, 'data': []}
+                task_logger.error('No data exported: %s', export_results)
+                raise RuntimeError(f'No data exported for {project}/{node_type}: {export_results}')
             return {'project': project, 'node_type': node_type, 'data': export_results['data']}
         except Exception as err: # pylint: disable=broad-exception-caught
             # Only retry on transient network / HTTP errors. Permanent failures

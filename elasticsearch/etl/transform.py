@@ -808,6 +808,20 @@ def generate_subject_json(data: dict[str, any], node_types: list[str]) -> list[d
     problematic_records: list[dict[str, any]] = []
     if work_items:
         spark = get_spark_session()
+
+        # YARN executor containers don't have our local Python files on their
+        # sys.path. addPyFile() distributes each file to every executor and
+        # adds it to sys.path so cloudpickle can resolve 'import transform'
+        # (and 'import load', 'import spark_utils') when deserializing tasks.
+        # This must be called before any tasks referencing these modules are
+        # submitted — i.e. before parallelize().
+        import os as _os
+        _step_dir = _os.getcwd()
+        for _py in ('transform.py', 'load.py', 'spark_utils.py'):
+            _fp = _os.path.join(_step_dir, _py)
+            if _os.path.exists(_fp):
+                spark.sparkContext.addPyFile(_fp)
+
         globals_bc = spark.sparkContext.broadcast({
             'data_dictionary': data_dictionary,
             'number_fields': number_fields,
