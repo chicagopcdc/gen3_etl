@@ -97,9 +97,9 @@ Start the cluster:
         - to see which one connects to the NAT gateway: `aws ec2 describe-route-tables --filters "Name=association.subnet-id,Values=<subnet-id>" --profile luca_dev --region us-east-1`
 - `echo "$CLUSTER_ID"`
 - `aws emr describe-cluster --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --query 'Cluster.Status.State' --output text`
-- `MASTER_INSTANCE_ID=$(aws emr list-instances --cluster-id $CLUSTER_ID --profile pcdc_play --region us-east-2 --instance-group-types MASTER --query 'Instances[0].Ec2InstanceId' --output text)`
+- `MASTER_INSTANCE_ID=$(aws emr list-instances --cluster-id $CLUSTER_ID --profile luca_dev --region us-east-1 --instance-group-types MASTER --query 'Instances[0].Ec2InstanceId' --output text)`
 - `echo "$MASTER_INSTANCE_ID"`
-- `aws ec2 associate-address --instance-id $MASTER_INSTANCE_ID --allocation-id $ALLOC_ID --profile pcdc_play --region us-east-2`
+- `aws ec2 associate-address --instance-id $MASTER_INSTANCE_ID --allocation-id $ALLOC_ID --profile luca_dev --region us-east-1`
 - `aws ec2 describe-addresses --allocation-ids $ALLOC_ID --profile pcdc_play --region us-east-2 --query 'Addresses[0].{PublicIP:PublicIp,InstanceId:InstanceId,PrivateIP:PrivateIpAddress}' --output table`
 
 #### Accessing the master node
@@ -132,6 +132,15 @@ cat > steps.json << EOF
 EOF
 
 aws emr add-steps --cluster-id $CLUSTER_ID --steps file://steps.json --region us-east-1 --profile luca_dev
+```
+
+READ LOGS:
+```
+Amazon S3
+Buckets
+gen3-etl-smoke-test-973342646972
+manual-logs/
+output.txt
 ```
 
 Terminate the cluster:
