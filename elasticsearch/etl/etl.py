@@ -28,6 +28,28 @@ for handler in logger.handlers:
 # Load env variables
 load_dotenv('../.env')
 
+# Resolve OpenSearch credentials from AWS Secrets Manager if configured.
+# Must happen before get_spark_session() is called so spark_utils.py can
+# propagate AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY to YARN executor
+# containers via spark.executorEnv.*. The secret must be a JSON object with
+# keys "aws_access_key_id" and "aws_secret_access_key" (and optionally
+# "aws_session_token"). The EMR_EC2_DefaultRole instance profile must have
+# secretsmanager:GetSecretValue permission on the secret ARN.
+_es_credentials_secret: str = os.environ.get('ES_CREDENTIALS_SECRET', '')
+if _es_credentials_secret:
+    import json as _json_sm
+    import boto3 as _boto3_sm
+    _sm_region: str = os.environ.get('ES_AWS_REGION', 'us-east-1')
+    _sm_client = _boto3_sm.client('secretsmanager', region_name=_sm_region)
+    _sm_data: dict = _json_sm.loads(
+        _sm_client.get_secret_value(SecretId=_es_credentials_secret)['SecretString']
+    )
+    os.environ['AWS_ACCESS_KEY_ID'] = _sm_data['aws_access_key_id']
+    os.environ['AWS_SECRET_ACCESS_KEY'] = _sm_data['aws_secret_access_key']
+    if 'aws_session_token' in _sm_data:
+        os.environ['AWS_SESSION_TOKEN'] = _sm_data['aws_session_token']
+    logger.info('Loaded OpenSearch credentials from Secrets Manager secret "%s"', _es_credentials_secret)
+
 # base url to gen3 data portal
 base_url: str = os.environ.get('BASE_URL', 'http://localhost')
 

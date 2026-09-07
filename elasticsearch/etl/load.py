@@ -146,6 +146,9 @@ def load_es_array_config_index(es_instance: Elasticsearch, index_name: str) -> N
     request_body: dict[str, any] = {'settings': {'number_of_shards': 1, 'number_of_replicas': 1}}
     request_body.update(mapping)
     index: str = f'{index_name}-array-config'
+    if es_instance.indices.exists(index=index):
+        logger.info('Index "%s" already exists — deleting before recreating', index)
+        es_instance.indices.delete(index=index)
     es_instance.indices.create(index=index, body=request_body, include_type_name=False)
     es_instance.index(index, id=index, body=doc)
     logger.info('Loaded ES array config index')
