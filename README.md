@@ -16,7 +16,8 @@ The ETL is controlled by environment variables. Key variables:
 | `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors (hostname only, no `https://` prefix). |
 | `ES_PORT` | `9200` | Elasticsearch port. Use `443` for AWS OpenSearch. |
 | `ES_SCHEME` | `http` | Connection scheme. Set to `https` for AWS OpenSearch. |
-| `ES_AWS_REGION` | *(none)* | AWS region, e.g. `us-east-1`. When set, every Elasticsearch request is signed with AWS SigV4 using the instance profile credentials. Required for AWS OpenSearch domains that use IAM-based access control. Leave unset for self-managed/local Elasticsearch. |
+| `ES_AWS_REGION` | *(none)* | AWS region, e.g. `us-east-1`. When set, every Elasticsearch request is signed with AWS SigV4. Required for AWS OpenSearch domains that use IAM-based access control. Leave unset for self-managed/local Elasticsearch. |
+| `ES_CREDENTIALS_SECRET` | *(none)* | Name or ARN of an AWS Secrets Manager secret that contains the IAM credentials used to sign OpenSearch requests. The secret must be a JSON object with keys `aws_access_key_id` and `aws_secret_access_key` (optionally `aws_session_token`). When set, the EMR driver fetches the credentials at startup and propagates them to YARN executors — no raw keys in `steps.json`. Requires `secretsmanager:GetSecretValue` on `EMR_EC2_DefaultRole`. Ignored when `ES_AWS_REGION` is unset. |
 | `ES_BULK_BATCH_SIZE` | `1000` | Records per bulk write batch. |
 | `ES_BULK_MAX_TRIES` | `5` | Max retry attempts per bulk batch. |
 | `ES_BULK_RETRY_DELAY` | `60` | Base delay in seconds between retries (multiplied by attempt number). |
@@ -68,6 +69,31 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
     - transform.py
     - load.py
     - spark_utils.py
+
+Create a secret in secrets manager: 
+```
+aws secretsmanager create-secret \
+  --name "gen3-etl/opensearch-credentials" \
+  --description "IAM user credentials for OpenSearch SigV4 signing from EMR" \
+  --secret-string '{"aws_access_key_id":"<ACCESS_KEY>","aws_secret_access_key":"<SECRET_KEY>"}' \
+  --profile luca_dev --region us-east-1
+```
+
+2 — Grant EMR_EC2_DefaultRole permission to read it
+```
+aws iam put-role-policy \
+  --role-name EMR_EC2_DefaultRole \
+  --policy-name AllowOpenSearchCredentialsSecret \
+  --policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{
+      "Effect":"Allow",
+      "Action":"secretsmanager:GetSecretValue",
+      "Resource":"arn:aws:secretsmanager:us-east-1:009732147623:secret:gen3-etl/opensearch-credentials*"
+    }]
+  }' \
+  --profile luca_dev --region us-east-1
+```
 
 Note: `nested_mapping.json` does not need to be uploaded — it is generated at runtime by the transform step and written to the path set by `MAPPING_FILE`.
 
@@ -126,7 +152,7 @@ cat > steps.json << EOF
     "Jar": "command-runner.jar",
     "Args": [
       "bash", "-c",
-      "{ export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export INDEX_NAME='pcdc_20260414'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export ES_PORT='443'; export ES_SCHEME='https'; export SPARK_MASTER='yarn'; export PYSPARK_PYTHON='/home/hadoop/etl_venv/bin/python3'; export MAPPING_FILE='./nested_mapping.json'; export CREDENTIALS='./credentials.json'; export DICTIONARY_URL='https://portal-dev.pedscommons.org/api/v0/submission/_dictionary/_all'; aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py etl ; } > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
+      "( export USER_API='https://portal-dev.pedscommons.org/user'; export FORCE_ISSUER='true'; export PROJECT_LIST='[\"pcdc-20260414\"]'; export INDEX_NAME='pcdc_20260414'; export ES_HOST='vpc-pcdc-dev-1-gen3-metadata-pwkasjp3g6sf6tkqys6m3senga.us-east-1.es.amazonaws.com'; export ES_PORT='443'; export ES_SCHEME='https'; export ES_AWS_REGION='us-east-1'; export ES_CREDENTIALS_SECRET='gen3-etl/opensearch-credentials'; export SPARK_MASTER='yarn'; export PYSPARK_PYTHON='/home/hadoop/etl_venv/bin/python3'; export MAPPING_FILE='./nested_mapping.json'; export CREDENTIALS='./credentials.json'; export BASE_URL='https://portal-dev.pedscommons.org'; export DICTIONARY_URL='https://portal-dev.pedscommons.org/api/v0/submission/_dictionary/_all'; /home/hadoop/etl_venv/bin/pip install 'elasticsearch==7.10.0' 'numpy<2' 'requests-aws4auth' 'boto3' --quiet && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/credentials.json ./credentials.json && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/etl.py ./etl.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/transform.py ./transform.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/load.py ./load.py && aws s3 cp s3://gen3-etl-smoke-test-973342646972/smoke/spark_utils.py ./spark_utils.py && /home/hadoop/etl_venv/bin/python3 etl.py etl ; ) > /tmp/output.txt 2>&1; aws s3 cp /tmp/output.txt s3://gen3-etl-smoke-test-973342646972/manual-logs/output.txt"
     ]
   }
 ]
@@ -185,7 +211,5 @@ aws logs tail /aws/emr/clusters/$CLUSTER_ID \
 
 (You'll need to create the log group first: aws logs create-log-group --log-group-name /aws/emr/clusters/$CLUSTER_ID --profile pcdc_play --region us-east-2)
 ```
-- add policy for opensearch connection or at least make a secret for the credentials
-```
-The IAM user approach works now and is the fastest path. But on EMR, the idiomatic solution is to attach an IAM policy to the EMR EC2 instance role (EMR_EC2_DefaultRole) that grants es:ESHttp* on the OpenSearch domain ARN — then boto3 uses the instance metadata automatically, no credentials in env vars. That's a one-time AWS console change if you want to do it properly later.
-```
+- ~~add policy for opensearch connection or at least make a secret for the credentials~~ — **done**: credentials are stored in Secrets Manager (`gen3-etl/opensearch-credentials`) and fetched by the EMR driver at startup via `ES_CREDENTIALS_SECRET`; raw keys are no longer in `steps.json`
+- longer-term alternative: attach an IAM policy directly to `EMR_EC2_DefaultRole` granting `es:ESHttp*` on the OpenSearch domain ARN — then no IAM user credentials are needed at all and the Secrets Manager lookup can be removed
