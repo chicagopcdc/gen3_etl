@@ -15,9 +15,20 @@ def get_spark_session() -> 'SparkSession':
     # Use /tmp as HOME for executor containers: YARN mounts /home/hadoop read-only
     # so any library that writes to $HOME/.cache (e.g. Gen3Auth token cache) will
     # fail. /tmp is always writable inside a YARN container.
-    return SparkSession.builder \
+    builder = SparkSession.builder \
         .appName('gen3_etl') \
         .master(os.environ.get('SPARK_MASTER', 'local[*]')) \
         .config('spark.executorEnv.HOME', '/tmp') \
-        .config('spark.yarn.appMasterEnv.HOME', '/tmp') \
-        .getOrCreate()
+        .config('spark.yarn.appMasterEnv.HOME', '/tmp')
+
+    # Propagate AWS credentials to YARN executor containers so boto3 can sign
+    # OpenSearch requests with the same IAM user the driver uses. Without this,
+    # executors fall back to the instance profile (EMR_EC2_DefaultRole) which may
+    # not have OpenSearch permissions.
+    for _var in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+                 'AWS_DEFAULT_REGION'):
+        _val = os.environ.get(_var, '')
+        if _val:
+            builder = builder.config(f'spark.executorEnv.{_var}', _val)
+
+    return builder.getOrCreate()

@@ -48,7 +48,7 @@ def get_es(
         import boto3
         from requests_aws4auth import AWS4Auth
         from elasticsearch import RequestsHttpConnection
-        creds = boto3.Session().get_credentials().resolve()
+        creds = boto3.Session().get_credentials().get_frozen_credentials()
         awsauth = AWS4Auth(creds.access_key, creds.secret_key, es_aws_region, 'es',
                            session_token=creds.token)
         return Elasticsearch(
@@ -167,7 +167,7 @@ def _load_batch(item: dict[str, any]) -> None:
         import boto3
         from requests_aws4auth import AWS4Auth
         from elasticsearch import RequestsHttpConnection
-        creds = boto3.Session().get_credentials().resolve()
+        creds = boto3.Session().get_credentials().get_frozen_credentials()
         awsauth = AWS4Auth(creds.access_key, creds.secret_key, item['es_aws_region'], 'es',
                            session_token=creds.token)
         es_instance: Elasticsearch = Elasticsearch(
