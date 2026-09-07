@@ -251,6 +251,9 @@ def load_es_data_index(
         }
     }
     request_body.update(mapping)
+    if es_instance.indices.exists(index=index_name):
+        logger.info('Index "%s" already exists — deleting before recreating', index_name)
+        es_instance.indices.delete(index=index_name)
     es_instance.indices.create(index=index_name, body=request_body, include_type_name=False)
 
     if not docs:
