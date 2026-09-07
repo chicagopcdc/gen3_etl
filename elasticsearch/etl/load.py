@@ -31,14 +31,40 @@ for handler in logger.handlers:
     handler.setFormatter(formatter)
 
 
-def get_es(es_port: int, es_host: str = 'localhost', es_timeout: int = ES_TIMEOUT_DEFAULT, es_scheme: str = 'http') -> Elasticsearch:
-    """ Get Elasticsearch instance with specified port, host, and scheme """
+def get_es(
+    es_port: int,
+    es_host: str = 'localhost',
+    es_timeout: int = ES_TIMEOUT_DEFAULT,
+    es_scheme: str = 'http',
+    es_aws_region: str = ''
+) -> Elasticsearch:
+    """
+    Get Elasticsearch instance with specified port, host, and scheme.
+    When es_aws_region is set, signs every request with AWS SigV4 credentials
+    obtained from the instance metadata (EMR instance profile). AWS OpenSearch
+    rejects unsigned requests as anonymous.
+    """
+    if es_aws_region:
+        import boto3
+        from requests_aws4auth import AWS4Auth
+        from elasticsearch import RequestsHttpConnection
+        creds = boto3.Session().get_credentials().resolve()
+        awsauth = AWS4Auth(creds.access_key, creds.secret_key, es_aws_region, 'es',
+                           session_token=creds.token)
+        return Elasticsearch(
+            hosts=[{'host': es_host, 'port': int(es_port), 'scheme': es_scheme}],
+            http_auth=awsauth,
+            use_ssl=(es_scheme == 'https'),
+            verify_certs=True,
+            connection_class=RequestsHttpConnection,
+            timeout=es_timeout
+        )
     return Elasticsearch([{'host': es_host, 'port': int(es_port), 'scheme': es_scheme}], timeout=es_timeout)
 
 
-def switch_alias(es_port: int, alias: str, old_index: str, new_index: str, es_host: str = 'localhost', es_scheme: str = 'http') -> None:
+def switch_alias(es_port: int, alias: str, old_index: str, new_index: str, es_host: str = 'localhost', es_scheme: str = 'http', es_aws_region: str = '') -> None:
     """ Switch Elasticsearch alias for specified instance and index names """
-    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme, es_aws_region=es_aws_region)
 
     alias_array_config: str = f'{alias}{ARRAY_CONFIG_ALIAS_SUFFIX}'
     old_index_array_config: str = f'{old_index}{ARRAY_CONFIG_ALIAS_SUFFIX}'
@@ -137,10 +163,26 @@ def _load_batch(item: dict[str, any]) -> None:
     from elasticsearch import Elasticsearch
     task_logger: logging.Logger = logging.getLogger(__name__)
 
-    es_instance: Elasticsearch = Elasticsearch(
-        [{'host': item['es_host'], 'port': int(item['es_port']), 'scheme': item['es_scheme']}],
-        timeout=item['es_timeout']
-    )
+    if item.get('es_aws_region'):
+        import boto3
+        from requests_aws4auth import AWS4Auth
+        from elasticsearch import RequestsHttpConnection
+        creds = boto3.Session().get_credentials().resolve()
+        awsauth = AWS4Auth(creds.access_key, creds.secret_key, item['es_aws_region'], 'es',
+                           session_token=creds.token)
+        es_instance: Elasticsearch = Elasticsearch(
+            hosts=[{'host': item['es_host'], 'port': int(item['es_port']), 'scheme': item['es_scheme']}],
+            http_auth=awsauth,
+            use_ssl=(item['es_scheme'] == 'https'),
+            verify_certs=True,
+            connection_class=RequestsHttpConnection,
+            timeout=item['es_timeout']
+        )
+    else:
+        es_instance: Elasticsearch = Elasticsearch(
+            [{'host': item['es_host'], 'port': int(item['es_port']), 'scheme': item['es_scheme']}],
+            timeout=item['es_timeout']
+        )
     try_bulk(es_instance, item['bulk_actions'], item['max_tries'], item['retry_delay'], item['es_timeout'])
     task_logger.info(
         'Loaded batch %d/%d (%d records) into index "%s"',
@@ -183,12 +225,13 @@ def load_es_data_index(
     es_bulk_max_tries: int = ES_BULK_MAX_TRIES_DEFAULT,
     es_bulk_retry_delay: int = ES_BULK_RETRY_DELAY_DEFAULT,
     es_timeout: int = ES_TIMEOUT_DEFAULT,
-    es_scheme: str = 'http'
+    es_scheme: str = 'http',
+    es_aws_region: str = ''
 ) -> None:
     """
     Load ES index for specified instance, index, and json data. Creates the index once (via
     es_instance, on the driver), then distributes the bulk-write batches across a Spark cluster
-    (es_host/es_port/es_scheme are passed separately so each task can build its own client).
+    (es_host/es_port/es_scheme/es_aws_region are passed separately so each task can build its own client).
     """
     logger.info('Loading ES data index %s', index_name)
     # load field mapping
@@ -227,6 +270,7 @@ def load_es_data_index(
             'es_host': es_host,
             'es_port': es_port,
             'es_scheme': es_scheme,
+            'es_aws_region': es_aws_region,
             'es_timeout': es_timeout,
             'max_tries': es_bulk_max_tries,
             'retry_delay': es_bulk_retry_delay,
@@ -262,14 +306,15 @@ def load_es_data(
     es_bulk_max_tries: int = ES_BULK_MAX_TRIES_DEFAULT,
     es_bulk_retry_delay: int = ES_BULK_RETRY_DELAY_DEFAULT,
     es_timeout: int = ES_TIMEOUT_DEFAULT,
-    es_scheme: str = 'http'
+    es_scheme: str = 'http',
+    es_aws_region: str = ''
 ) -> None:
     """
     'Public'-facing function to load ES data index for specified json data set, ES host/port and index name.
     Optional parameters can be specified for ES bulk API call batch size, max tries on exception, and delay
-    between tries.
+    between tries. Pass es_aws_region to sign requests with AWS SigV4 (required for AWS OpenSearch).
     """
-    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme, es_aws_region=es_aws_region)
     load_es_data_index(
         es_instance,
         data,
@@ -280,11 +325,12 @@ def load_es_data(
         es_bulk_max_tries,
         es_bulk_retry_delay,
         es_timeout,
-        es_scheme
+        es_scheme,
+        es_aws_region
     )
 
 
-def load_es_array_config(es_port: int, index_name: str, es_host: str = 'localhost', es_scheme: str = 'http') -> None:
+def load_es_array_config(es_port: int, index_name: str, es_host: str = 'localhost', es_scheme: str = 'http', es_aws_region: str = '') -> None:
     """ Load Elasticsearch data and array config indexes for specified json data set, ES host/port and index name """
-    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme)
+    es_instance: Elasticsearch = get_es(es_port, es_host, es_scheme=es_scheme, es_aws_region=es_aws_region)
     load_es_array_config_index(es_instance, index_name)

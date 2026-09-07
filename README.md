@@ -16,6 +16,7 @@ The ETL is controlled by environment variables. Key variables:
 | `ES_HOST` | `localhost` | Elasticsearch host reachable from all Spark executors (hostname only, no `https://` prefix). |
 | `ES_PORT` | `9200` | Elasticsearch port. Use `443` for AWS OpenSearch. |
 | `ES_SCHEME` | `http` | Connection scheme. Set to `https` for AWS OpenSearch. |
+| `ES_AWS_REGION` | *(none)* | AWS region, e.g. `us-east-1`. When set, every Elasticsearch request is signed with AWS SigV4 using the instance profile credentials. Required for AWS OpenSearch domains that use IAM-based access control. Leave unset for self-managed/local Elasticsearch. |
 | `ES_BULK_BATCH_SIZE` | `1000` | Records per bulk write batch. |
 | `ES_BULK_MAX_TRIES` | `5` | Max retry attempts per bulk batch. |
 | `ES_BULK_RETRY_DELAY` | `60` | Base delay in seconds between retries (multiplied by attempt number). |
@@ -61,7 +62,7 @@ Load following files to an S3 bucket (s3://gen3-etl-smoke-test-973342646972/smok
     source /home/hadoop/etl_venv/bin/activate
     # pyspark must be installed in the venv so the step driver and YARN executors
     # can both import it. Use the same major.minor as the EMR runtime (3.5.x on EMR 7.x).
-    pip install gen3==4.5.0 python-dotenv "urllib3<2" requests "elasticsearch==7.10.0" "numpy<2" pyspark==3.5.0
+    pip install gen3==4.5.0 python-dotenv "urllib3<2" requests "elasticsearch==7.10.0" "numpy<2" requests-aws4auth pyspark==3.5.0
     ```
     - etl.py
     - transform.py
@@ -183,4 +184,8 @@ aws logs tail /aws/emr/clusters/$CLUSTER_ID \
   --profile pcdc_play --region us-east-2
 
 (You'll need to create the log group first: aws logs create-log-group --log-group-name /aws/emr/clusters/$CLUSTER_ID --profile pcdc_play --region us-east-2)
+```
+- add policy for opensearch connection or at least make a secret for the credentials
+```
+The IAM user approach works now and is the fastest path. But on EMR, the idiomatic solution is to attach an IAM policy to the EMR EC2 instance role (EMR_EC2_DefaultRole) that grants es:ESHttp* on the OpenSearch domain ARN — then boto3 uses the instance metadata automatically, no credentials in env vars. That's a one-time AWS console change if you want to do it properly later.
 ```
