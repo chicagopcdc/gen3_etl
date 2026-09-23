@@ -454,7 +454,7 @@ def main():
             )
     else:
         _logger.info('Building external resource file using FHIR API')
-        cookies: dict[str, str] = {'arc-user': _CONFIG['GMKF_AUTH_ARC_USER']}
+        cookies: dict[str, str] = ast.literal_eval(_CONFIG.get('GMKF_AUTH_COOKIES', '{}') or '{}') or None
         study_title: str
         for study_title in _CONFIG['GMKF_STUDY_TITLES']:
             study_id: str = get_gmkf_study_id_by_title(study_title, cookies)
@@ -521,8 +521,9 @@ _CONFIG: dict[str, any] = {
     'LOG_FILE_PATH': './get_gmkf_data.log',
     'LOG_FILE_APPEND': False,
     # credentials for FHIR API; log in to e.g. https://fhir.kidsfirstdrc.org/ResearchSubject?study=sd-dypmehhf, find
-    # cookie 'arc-user' using browser dev tools, then save value to GMKF_AUTH_ARC_USER config var in ../.env
-    'GMKF_AUTH_ARC_USER': '',
+    # cookie '_oauth2_proxy' using browser dev tools, then save value to GMKF_AUTH_COOKIES config var
+    # in .env as string-ified python dictionary e.g. '{"_oauth2_proxy": "<cookie value>"}
+    'GMKF_AUTH_COOKIES': '{}',
     # file source will be used if path specified; leave blank/null to use API
     #'GMKF_SUBJECT_FILE_PATH': '/Users/schoi/Workspace/PED/PCDC/Projects/_data/gen3_etl/gmkf/nbl-cog-usis.csv',
     'GMKF_SUBJECT_FILE_PATH': '',
