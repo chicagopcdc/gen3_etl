@@ -74,6 +74,10 @@ def extract() -> dict[str, any]:
         node_data[project] = {}
         node_type: str
         for node_type in node_types:
+            if node_type == "program" or node_type == "project":
+                print("Skipping program node")
+                continue
+
             tries: int = 0
             while tries < max(es_bulk_max_tries, 1):
                 tries += 1
