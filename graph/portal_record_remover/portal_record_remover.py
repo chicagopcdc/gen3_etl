@@ -2,13 +2,15 @@
 Remove records from Gen3 platform
 """
 import ast
-import csv
-import sys
-import os
-import logging
-import json
 import base64
+import csv
 import datetime
+import sys
+import json
+import logging
+import os
+import time
+
 import requests
 
 from gen3.auth import Gen3Auth
@@ -209,11 +211,27 @@ class PortalRecordRemover:
         node_name: str = node_type if node_type else self.node_type
         self._logger.info(f'Removing node type {node_name} for project {self._project_code} from portal')
         if not self.dry_run_only:
-            self._gen3_submission.delete_node(
-                program=self._program_code,
-                project=self._project_code,
-                node_name=node_name
-            )
+            retry_delay: int = 60
+            max_tries: int = 5
+            tries: int = 0
+            while tries < max(max_tries, 1):
+                tries += 1
+                try:
+                    self._gen3_submission.delete_node(
+                        program=self._program_code,
+                        project=self._project_code,
+                        node_name=node_name
+                    )
+                except Exception as ex: # pylint: disable=broad-exception-caught
+                    self._logger.error(ex)
+                    if tries >= max_tries:
+                        self._logger.error(f'Error removing node type {node_type}, max tries ({max_tries}) attempted')
+                        raise
+                    self._logger.error(
+                        f'Error removing node type {node_type} (attempt #{tries}), retrying after {retry_delay} seconds'
+                    )
+                    time.sleep(retry_delay)
+
         else:
             self._logger.info('Dry run only specified, delete_node request not submitted to portal')
 
@@ -225,6 +243,10 @@ class PortalRecordRemover:
             return
 
         self._logger.info(f'Removing node types for project {self._project_code} from portal: {ordered_node_list}')
+        node_type: str
+        for node_type in node_types:
+            self.delete_node(node_type)
+
         if not self.dry_run_only:
             self._gen3_submission.delete_nodes(
                 program=self._program_code,
