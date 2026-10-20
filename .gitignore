@@ -9,7 +9,10 @@
 __pycache__
 
 *.log
+*.pem
 *.pickle
+*.pub
+*.sh
 *.zip
 credentials*.json
 
