@@ -244,7 +244,7 @@ class PortalRecordRemover:
 
         self._logger.info(f'Removing node types for project {self._project_code} from portal: {ordered_node_list}')
         node_type: str
-        for node_type in node_types:
+        for node_type in ordered_node_list:
             self.delete_node(node_type)
 
         if not self.dry_run_only:
