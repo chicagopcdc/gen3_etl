@@ -213,6 +213,7 @@ class PortalRecordRemover:
                         project=self._project_code,
                         uuids=uuids
                     )
+                    break
                 except Exception as ex: # pylint: disable=broad-exception-caught
                     self._logger.error(ex)
                     if tries >= max_tries:
@@ -241,6 +242,7 @@ class PortalRecordRemover:
                         project=self._project_code,
                         node_name=node_name
                     )
+                    break
                 except Exception as ex: # pylint: disable=broad-exception-caught
                     self._logger.error(ex)
                     if tries >= max_tries:
