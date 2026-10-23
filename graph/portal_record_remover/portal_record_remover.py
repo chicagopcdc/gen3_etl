@@ -202,7 +202,26 @@ class PortalRecordRemover:
         """ Delete records (Gen3Submission.delete_records()) from portal matching specified list of UUIDs """
         self._logger.info(f'Removing {len(uuids)} records from portal')
         if not self.dry_run_only:
-            self._gen3_submission.delete_records(program=self._program_code, project=self._project_code, uuids=uuids)
+            retry_delay: int = 60
+            max_tries: int = 5
+            tries: int = 0
+            while tries < max(max_tries, 1):
+                tries += 1
+                try:
+                    self._gen3_submission.delete_records(
+                        program=self._program_code,
+                        project=self._project_code,
+                        uuids=uuids
+                    )
+                except Exception as ex: # pylint: disable=broad-exception-caught
+                    self._logger.error(ex)
+                    if tries >= max_tries:
+                        self._logger.error(f'Error removing records, max tries ({max_tries}) attempted')
+                        raise
+                    self._logger.error(
+                        f'Error removing records (attempt #{tries}), retrying after {retry_delay} seconds'
+                    )
+                    time.sleep(retry_delay)
         else:
             self._logger.info('Dry run specified, delete_records request not submitted to portal')
 
@@ -231,7 +250,6 @@ class PortalRecordRemover:
                         f'Error removing node type {node_type} (attempt #{tries}), retrying after {retry_delay} seconds'
                     )
                     time.sleep(retry_delay)
-
         else:
             self._logger.info('Dry run only specified, delete_node request not submitted to portal')
 
