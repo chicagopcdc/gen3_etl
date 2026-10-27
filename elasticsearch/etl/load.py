@@ -15,6 +15,8 @@ ES_BULK_RETRY_DELAY_DEFAULT: int = 60
 ES_TIMEOUT_DEFAULT: int = 60
 ES_INDEX_MAPPING_TOTAL_FIELDS_LIMIT: int = 2000
 ARRAY_CONFIG_ALIAS_SUFFIX: str = '-array-config'
+# Guppy looks up the array config doc by _id = its configured index name (guppy 'indices[].index', i.e. the alias)
+ARRAY_CONFIG_DOC_ID_DEFAULT: str = 'pcdc'
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -60,8 +62,16 @@ def switch_alias(es_port: int, alias: str, old_index: str, new_index: str) -> No
         logger.error(nferr)
 
 
-def load_es_array_config_index(es_instance: Elasticsearch, index_name: str) -> None:
-    """ Load Elasticsearch array config index for specified index_name => '{index_name}-array-config' """
+def load_es_array_config_index(
+    es_instance: Elasticsearch,
+    index_name: str,
+    doc_id: str = ARRAY_CONFIG_DOC_ID_DEFAULT
+) -> None:
+    """
+    Load Elasticsearch array config index for specified index_name => '{index_name}-array-config'. The array config
+    doc _id must equal the index name configured in guppy (the alias, e.g. 'pcdc'), otherwise guppy finds no array
+    fields and returns nested array fields as null objects.
+    """
     logger.info('Loading ES array config index %s', index_name)
     mapping: dict[str, any] = {
         'mappings': {
@@ -117,7 +127,7 @@ def load_es_array_config_index(es_instance: Elasticsearch, index_name: str) -> N
     request_body.update(mapping)
     index: str = f'{index_name}-array-config'
     es_instance.indices.create(index=index, body=request_body, include_type_name=False)
-    es_instance.index(index, id=index, body=doc)
+    es_instance.index(index, id=doc_id, body=doc)
     logger.info('Loaded ES array config index')
 
 
@@ -227,7 +237,11 @@ def load_es_data(
     )
 
 
-def load_es_array_config(es_port: int, index_name: str) -> None:
+def load_es_array_config(
+    es_port: int,
+    index_name: str,
+    doc_id: str = ARRAY_CONFIG_DOC_ID_DEFAULT
+) -> None:
     """ Load Elasticsearch data and array config indexes for specified json data set, ES port and index name """
     es_instance: Elasticsearch = get_es(es_port)
-    load_es_array_config_index(es_instance, index_name)
+    load_es_array_config_index(es_instance, index_name, doc_id)
