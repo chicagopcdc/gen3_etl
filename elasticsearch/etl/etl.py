@@ -13,7 +13,13 @@ from gen3.auth import Gen3Auth
 from gen3.submission import Gen3Submission
 from transform import generate_subject_json
 from transform import generate_es_index_mapping
-from load import load_es_data, load_es_array_config, switch_alias, ARRAY_CONFIG_ALIAS_SUFFIX
+from load import (
+    load_es_data,
+    load_es_array_config,
+    switch_alias,
+    ARRAY_CONFIG_ALIAS_SUFFIX,
+    ARRAY_CONFIG_DOC_ID_DEFAULT
+)
 
 
 # set up logging
@@ -50,6 +56,9 @@ es_port: int = int(os.environ.get('ES_PORT', 9200))
 
 # Elasticsearch index name
 index_name: str = os.environ.get('INDEX_NAME', 'pcdc_20220808')
+
+# Elasticsearch array config doc id (for guppy)
+array_config_doc_id: str = os.environ.get('ARRAY_CONFIG_DOC_ID', ARRAY_CONFIG_DOC_ID_DEFAULT)
 
 # Elasticsearch parameters for bulk/batch api
 es_bulk_batch_size: int = int(os.environ.get('ES_BULK_BATCH_SIZE', 10))
@@ -136,7 +145,7 @@ def load_data(data: dict[str, any]) -> None:
 
 def load_array_config() -> None:
     """ Load gen3 data portal Elasticsearch array config index with array fields """
-    load_es_array_config(es_port, index_name)
+    load_es_array_config(es_port, index_name, array_config_doc_id)
 
 
 if len(sys.argv) > 1:
